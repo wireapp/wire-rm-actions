@@ -1,0 +1,14 @@
+# zizmor configuration (https://docs.zizmor.sh/configuration/).
+rules:
+  unpinned-uses:
+    config:
+      policies:
+        # The reusable workflow calls this repository's own actions by ref:
+        # a commit SHA of this repository cannot name the commit it lives in.
+        "wireapp/wire-rm-actions/*": ref-pin
+        "*": hash-pin
+  # zizmor suggests `uses: $/path` for in-repository actions, but actionlint
+  # 1.7.12 rejects that syntax (rhysd/actionlint#711): keep `./path` until it
+  # is supported.
+  self-repository:
+    disable: true

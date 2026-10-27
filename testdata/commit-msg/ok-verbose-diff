@@ -1,0 +1,8 @@
+fix: a verbose commit keeps the diff out of the message
+
+The diff below the scissors line is cut by git.
+# ------------------------ >8 ------------------------
+# Do not modify or remove the line above.
+# Everything below it will be ignored.
+diff --git a/x b/x
++a line of the diff

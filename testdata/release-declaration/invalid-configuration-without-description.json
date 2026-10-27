@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "wire.component-release/v1alpha2",
+  "component": "my-component",
+  "version": "4.24.3",
+  "summary": "A configuration entry without its mandatory description.",
+  "upgrade_from": ">=4.23.0",
+  "changes": [],
+  "migrations": [],
+  "configuration": [
+    {
+      "key": "config.FEATURE_SSO_GROUP_SYNC",
+      "change": "added",
+      "required": false,
+      "default": "false"
+    }
+  ]
+}

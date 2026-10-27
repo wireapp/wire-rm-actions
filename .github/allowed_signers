@@ -1,0 +1,5 @@
+# SSH keys allowed to sign release tags (git verify-tag, gpg.format=ssh), read
+# from dev by .github/workflows/release.yml. One line per key, in the
+# ssh-keygen ALLOWED SIGNERS format:
+#   <email> namespaces="git" <key type> <public key>
+bruno.sinou@posteo.de namespaces="git" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICH4MI9bl12pVeAnAvW/CjfeHimNdx1IHPucWB0ZZ0NZ

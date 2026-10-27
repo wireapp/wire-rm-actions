@@ -1,0 +1,62 @@
+# yamllint disable rule:truthy
+# A signed vX.Y.Z tag on dev becomes a draft GitHub release; a maintainer
+# reviews and publishes it. Consumers pin the tag's commit SHA.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions: {}
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Draft release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Required reviewer, restricted to v* tags (repository settings).
+    environment: release
+    permissions:
+      contents: write # create the draft release
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check the tag
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          num='(0|[1-9][0-9]*)'
+          [[ $TAG =~ ^v${num}\.${num}\.${num}$ ]] ||
+            { echo "::error::$TAG is not a vX.Y.Z release tag"; exit 1; }
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/dev ||
+            { echo "::error::$TAG does not point to a commit of dev"; exit 1; }
+          [[ $(git cat-file -t "refs/tags/$TAG") == tag ]] ||
+            { echo "::error::$TAG is not an annotated, signed tag"; exit 1; }
+          # The maintainers' keys as dev has them, not as the tagged commit
+          # would declare them.
+          signers=$(mktemp)
+          git show origin/dev:.github/allowed_signers >"$signers"
+          git -c gpg.format=ssh -c gpg.ssh.allowedSignersFile="$signers" verify-tag "$TAG" ||
+            { echo "::error::$TAG is not signed by a key of .github/allowed_signers"; exit 1; }
+      - name: Check the reusable workflow refs
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          refs=$(grep -Eo 'uses: wireapp/wire-rm-actions/[^@[:space:]]+@[^[:space:]]+' .github/workflows/dev-build.yml)
+          [[ -n $refs ]] || { echo "::error::no wireapp/wire-rm-actions ref in dev-build.yml"; exit 1; }
+          if grep -v "@${TAG}\$" <<<"$refs"; then
+            echo "::error::dev-build.yml must call the actions at @$TAG (make release-prep VERSION=$TAG)"
+            exit 1
+          fi
+      - name: Create the draft release
+        env:
+          TAG: ${{ github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release create "$TAG" --draft --verify-tag --title "$TAG" --generate-notes

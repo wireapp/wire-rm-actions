@@ -1,0 +1,37 @@
+name: Wire quay login
+description: >-
+  Log in to quay.io with the GitHub Actions OIDC token of the job, through a
+  federated robot account: no robot password to store or rotate. The job needs
+  permissions id-token write. Outputs the one-hour robot token for the tools
+  that log in themselves (helm, crane, oras).
+inputs:
+  robot:
+    description: The federated robot account, <organization>+<name> (e.g. wire+gha_my-component).
+    required: true
+  registry:
+    description: Registry host.
+    default: quay.io
+  audience:
+    description: OIDC audience the robot federation accepts (the "OIDC audiences" field of the robot).
+    default: quay
+  docker-login:
+    description: Also run docker login with the robot token (for docker build-push).
+    default: "true"
+outputs:
+  token:
+    description: The robot token (masked, valid one hour), for helm registry login, crane auth login, oras login.
+    value: ${{ steps.login.outputs.token }}
+  username:
+    description: The robot account, to pair with token.
+    value: ${{ inputs.robot }}
+runs:
+  using: composite
+  steps:
+    - id: login
+      shell: bash
+      env:
+        ROBOT: ${{ inputs.robot }}
+        REGISTRY: ${{ inputs.registry }}
+        AUDIENCE: ${{ inputs.audience }}
+        DOCKER_LOGIN: ${{ inputs.docker-login }}
+      run: "$GITHUB_ACTION_PATH/../scripts/quay-login.sh"

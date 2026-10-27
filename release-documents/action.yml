@@ -1,0 +1,71 @@
+name: Wire release documents
+description: >-
+  Gather the release note and the release declaration of a build (ADR-0020
+  sections 2 and 3) and output the documents object of its release manifest.
+  A release copies them into out-dir (a GA without a note or a declaration
+  fails); a dev build only references its note and warns when it is missing.
+inputs:
+  component:
+    description: Release manager component id the declaration must declare.
+    required: true
+  version:
+    description: The version, without "v".
+    required: true
+  release-type:
+    description: ga, alpha, beta, rc or dev.
+    required: true
+  release-note:
+    description: The release_note dispatch input; see note-input.
+    default: ""
+  note-input:
+    description: ignore (the repository note always wins, the input only warns) or override (the input replaces the repository note of a release).
+    default: ignore
+  release-declaration:
+    description: JSON text of the declaration (the release_declaration dispatch input); empty reads the repository file. Ignored for a dev build.
+    default: ""
+  publication-dir:
+    description: Folder of the release files (ADR-0020), read first; release-note.md and declaration.json.
+    default: publication
+  out-dir:
+    description: Where release-note.md and release-declaration.json are written (releases).
+    default: .
+outputs:
+  documents-json:
+    description: The documents object of the release manifest, {} when empty.
+    value: ${{ steps.documents.outputs.documents-json }}
+  note-file:
+    description: release-note.md for a release, the repository path for a dev build, empty without a note.
+    value: ${{ steps.documents.outputs.note-file }}
+  note-path:
+    description: Repository path of the note found, empty when none.
+    value: ${{ steps.documents.outputs.note-path }}
+  note-sha256:
+    description: sha256 of the note.
+    value: ${{ steps.documents.outputs.note-sha256 }}
+  note-source:
+    description: repository or input, empty without a note.
+    value: ${{ steps.documents.outputs.note-source }}
+  declaration-file:
+    description: release-declaration.json, empty without a declaration.
+    value: ${{ steps.documents.outputs.declaration-file }}
+  declaration-sha256:
+    description: sha256 of the declaration as written.
+    value: ${{ steps.documents.outputs.declaration-sha256 }}
+  declaration-source:
+    description: release_manager or repository, empty without a declaration.
+    value: ${{ steps.documents.outputs.declaration-source }}
+runs:
+  using: composite
+  steps:
+    - id: documents
+      shell: bash
+      env:
+        COMPONENT: ${{ inputs.component }}
+        VERSION: ${{ inputs.version }}
+        RELEASE_TYPE: ${{ inputs.release-type }}
+        RELEASE_NOTE: ${{ inputs.release-note }}
+        NOTE_INPUT: ${{ inputs.note-input }}
+        RELEASE_DECLARATION: ${{ inputs.release-declaration }}
+        PUBLICATION_DIR: ${{ inputs.publication-dir }}
+        OUT_DIR: ${{ inputs.out-dir }}
+      run: "$GITHUB_ACTION_PATH/../scripts/release-documents.sh"

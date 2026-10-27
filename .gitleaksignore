@@ -1,0 +1,6 @@
+# Findings accepted one by one. Each needs a reason (a comment just above it)
+# and the maintainer's approval in the PR; .gitleaks.toml stays limited to
+# testdata/. Two forms:
+# - commit:file:rule:line, for a finding that lives only in history;
+# - file:rule:line, for a file still in the tree: the staged scan of the
+#   pre-commit hook has no commit to match.

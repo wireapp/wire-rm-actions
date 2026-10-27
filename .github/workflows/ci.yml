@@ -1,0 +1,309 @@
+# yamllint disable rule:truthy
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [dev]
+  schedule:
+    - cron: "17 3 * * *"
+
+permissions: {}
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - run: make tools
+      - run: make lint
+
+  audit:
+    name: Audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - run: make tools
+      - run: make audit
+
+  # Nightly only: the online audits query GitHub (known vulnerable actions,
+  # impostor commits), with a read-only token.
+  audit-online:
+    name: Audit (online)
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - run: make tools
+      - run: make audit-online
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - run: make tools
+      - run: make test
+
+  # The whole history: a secret removed by a later commit is still published.
+  secrets:
+    name: Secrets scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - run: make tools
+      - run: make secrets-scan
+
+  # Every commit the pull request adds; the history before it is never checked.
+  commits:
+    name: Commit messages
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check each commit message
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          msg=$(mktemp)
+          for c in $(git rev-list "origin/${BASE_REF}..${HEAD_SHA}"); do
+            git log -1 --format=%B "$c" >"$msg"
+            echo "$c $(head -n 1 "$msg")"
+            make -s commit-msg MSG="$msg"
+          done
+
+  # Runs the actions from this checkout, so actionlint also validates their
+  # metadata and the inputs passed to them.
+  smoke:
+    name: Smoke test the actions
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      # A prefix of its own, so a real tag of this repository never interferes.
+      - name: Give the version a base tag
+        run: git tag smoke-v1.2.3
+      - id: version
+        uses: ./version
+        with:
+          tag-prefix: smoke-v
+      - name: Check the dev version
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          KIND: ${{ steps.version.outputs.kind }}
+          BASE: ${{ steps.version.outputs.base-tag }}
+        run: |
+          echo "$VERSION ($KIND from $BASE)"
+          [[ $KIND == dev && $BASE == smoke-v1.2.3 && $VERSION == 1.2.4-* ]]
+      # The dispatch inputs of a release-manager-driven rc of a trunk.
+      - id: inputs
+        uses: ./release-inputs
+        with:
+          source-branch: smoke
+          type: rc
+          version-bump: minor
+          request-id: 123e4567-e89b-42d3-a456-426614174000
+          expected-version: 1.3.0-rc.1
+          rm-origin: staging
+          source-branches: ^smoke$
+      - name: Check the release inputs
+        env:
+          RM_DRIVEN: ${{ steps.inputs.outputs.rm-driven }}
+          FORCE: ${{ steps.inputs.outputs.force }}
+          TYPE: ${{ steps.inputs.outputs.release-type }}
+        run: |
+          echo "rm-driven=$RM_DRIVEN force=$FORCE release-type=$TYPE"
+          [[ $RM_DRIVEN == true && $FORCE == false && $TYPE == rc ]]
+      # The publication inputs of the same release-manager-driven rc.
+      - id: publish_inputs
+        uses: ./release-inputs
+        with:
+          mode: publish
+          version: 1.3.0-rc.1
+          release-id: "123456"
+          request-id: 123e4567-e89b-42d3-a456-426614174000
+          rm-origin: staging
+      - name: Check the publication inputs
+        env:
+          RM_DRIVEN: ${{ steps.publish_inputs.outputs.rm-driven }}
+          FORCE: ${{ steps.publish_inputs.outputs.force }}
+          TYPE: ${{ steps.publish_inputs.outputs.release-type }}
+        run: |
+          echo "rm-driven=$RM_DRIVEN release-type=$TYPE"
+          [[ $RM_DRIVEN == true && -z $FORCE && $TYPE == rc ]]
+      # The release version needs the source branch as a remote ref: a local one
+      # standing for origin/smoke, at the tagged commit.
+      - name: Stand in for the remote branch
+        run: git update-ref refs/remotes/origin/smoke HEAD
+      # verify needs the real API: it is covered by the tests, against a fake gh.
+      - id: source
+        uses: ./release-source
+        with:
+          mode: resolve
+          source-branch: smoke
+      - name: Check the source commit
+        env:
+          SHA: ${{ steps.source.outputs.sha }}
+        run: '[[ $SHA == "$(git rev-parse HEAD)" ]]'
+      - id: release
+        uses: ./version
+        with:
+          mode: release
+          tag-prefix: smoke-v
+          source-branch: smoke
+          release-type: rc
+          version-bump: minor
+          expected-version: 1.3.0-rc.1
+      - name: Check the release version
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+          KIND: ${{ steps.release.outputs.kind }}
+          TAG: ${{ steps.release.outputs.tag }}
+          FROM: ${{ steps.release.outputs.from-tag }}
+        run: |
+          echo "$VERSION ($KIND, $TAG, changelog from $FROM)"
+          [[ $KIND == prerelease && $TAG == smoke-v1.3.0-rc.1 && $FROM == smoke-v1.2.3 ]]
+      - id: summary
+        uses: ./release-source
+        with:
+          mode: summary
+          source-branch: smoke
+          version: ${{ steps.release.outputs.version }}
+          release-type: rc
+          source-sha: ${{ steps.source.outputs.sha }}
+          base-tag: ${{ steps.release.outputs.base-tag }}
+          from-tag: ${{ steps.release.outputs.from-tag }}
+          tag-prefix: smoke-v
+          note: Smoke test of release-source.
+      - name: Check the summary
+        env:
+          COUNT: ${{ steps.summary.outputs.commit-count }}
+        run: '[[ $COUNT == 0 ]]'
+      # Nothing after the tag: a changelog with its heading and no entry.
+      - id: changelog
+        uses: ./changelog
+        with:
+          from-tag: ${{ steps.release.outputs.from-tag }}
+          version: ${{ steps.release.outputs.version }}
+          output-file: ${{ runner.temp }}/CHANGELOG.md
+      - name: Check the changelog
+        env:
+          FILE: ${{ steps.changelog.outputs.file }}
+          COUNT: ${{ steps.changelog.outputs.count }}
+        run: |
+          cat "$FILE"
+          [[ $COUNT == 0 ]] && grep -q '^#### 1.3.0-rc.1 ' "$FILE"
+      # An ADR-0020 compatibility file, in both shapes.
+      - id: compatibility
+        uses: ./compatibility
+        with:
+          file: testdata/compatibility/ok-client.yaml
+      - name: Check the compatibility outputs
+        env:
+          DOCUMENT: ${{ steps.compatibility.outputs.compatibility }}
+          MANIFEST: ${{ steps.compatibility.outputs.manifest-compatibility }}
+        run: |
+          jq -e '.providesApis == [] and (.consumesApis | length) == 2' "$DOCUMENT"
+          jq -e '.provides == [] and (.requires | length) == 4 and .includes == []' "$MANIFEST"
+      - uses: ./release-declaration
+        with:
+          file: testdata/release-declaration/valid.json
+          component: my-component
+          version: 4.25.0
+      # A dev build of the smoke version: no note in this repository (a warning), and a
+      # manifest from an ADR-0020 compatibility file of the test data.
+      - id: documents
+        uses: ./release-documents
+        with:
+          component: smoke
+          version: ${{ steps.version.outputs.version }}
+          release-type: dev
+      - id: manifest
+        uses: ./release-manifest
+        with:
+          mode: write
+          manifest: ${{ runner.temp }}/release-manifest.json
+          component: smoke
+          version: ${{ steps.version.outputs.version }}
+          release-type: dev
+          source-repository: ${{ github.server_url }}/${{ github.repository }}
+          source-ref: ${{ github.head_ref || github.ref_name }}
+          source-commit: ${{ github.sha }}
+          image-repository: quay.io/wire/smoke
+          image-digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+          chart-repository: oci://quay.io/wire/charts/dev/smoke
+          chart-digest: sha256:1111111111111111111111111111111111111111111111111111111111111111
+          compatibility-file: testdata/compatibility/ok-my-component.yaml
+          documents-json: ${{ steps.documents.outputs.documents-json }}
+      - name: Check the dev manifest
+        env:
+          MANIFEST: ${{ steps.manifest.outputs.manifest }}
+        run: jq -e '.kind == "dev" and (.compatibility.provides | length) == 4 and .compatibility.includes == [] and .documents == {}' "$MANIFEST"
+      # No release manager URL: both are skipped with a warning, even when required.
+      - uses: ./notify-rm
+        with:
+          component: smoke
+          version: ${{ steps.version.outputs.version }}
+          kind: ${{ steps.version.outputs.kind }}
+          release-declaration-file: testdata/release-declaration/valid.json
+          required: "true"

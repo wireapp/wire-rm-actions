@@ -1,0 +1,62 @@
+name: Wire release changelog
+description: >-
+  The changelog of the commits since a release tag, in the generate-changelog
+  release format (conventional commit types, scopes, commit and pull request
+  links). Needs a checkout with fetch-depth 0 (tags and history).
+inputs:
+  from-tag:
+    description: The previous release tag; its commits are left out.
+    required: true
+  to-ref:
+    description: Last commit included.
+    default: HEAD
+  version:
+    description: Version shown in the "#### <version> (<date>)" heading; empty shows the date only.
+    default: ""
+  heading:
+    description: false leaves the heading out (e.g. for a GitHub Release body, whose title carries the version).
+    default: "true"
+  exclude:
+    description: Commit types left out, comma or space separated.
+    default: chore build docs refactor style test runfix
+  merge-commits:
+    description: >-
+      ignore (default), or pull-request: the commits brought in by a "Merge pull
+      request #N" merge get the link of that pull request. The merge itself is
+      left out either way.
+    default: ignore
+  collapse:
+    description: >-
+      Commit types whose section is folded in a details block, after the other
+      sections, comma or space separated (e.g. ci). Breaking changes are never
+      folded; an excluded type stays out.
+    default: ""
+  repo-url:
+    description: Base URL of the commit and pull request links; empty means no links.
+    default: ${{ github.server_url }}/${{ github.repository }}
+  output-file:
+    description: Where the changelog is written.
+    default: CHANGELOG.md
+outputs:
+  file:
+    description: Path of the changelog.
+    value: ${{ steps.changelog.outputs.file }}
+  count:
+    description: Number of commits listed; 0 means no user-facing change.
+    value: ${{ steps.changelog.outputs.count }}
+runs:
+  using: composite
+  steps:
+    - id: changelog
+      shell: bash
+      env:
+        FROM_REF: ${{ inputs.from-tag }}
+        TO_REF: ${{ inputs.to-ref }}
+        VERSION: ${{ inputs.version }}
+        HEADING: ${{ inputs.heading }}
+        EXCLUDE: ${{ inputs.exclude }}
+        MERGE_COMMITS: ${{ inputs.merge-commits }}
+        COLLAPSE: ${{ inputs.collapse }}
+        REPO_URL: ${{ inputs.repo-url }}
+        OUTPUT_FILE: ${{ inputs.output-file }}
+      run: "$GITHUB_ACTION_PATH/../scripts/changelog.sh"

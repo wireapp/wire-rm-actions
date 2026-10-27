@@ -1,0 +1,14 @@
+# gitleaks configuration (make secrets-scan): the default rules, and one
+# allowlist for synthetic values under testdata/ directories. Nothing else is
+# allowlisted; gitleaks:allow comments are ignored (Makefile).
+
+[extend]
+useDefault = true
+
+# Both conditions: a file under testdata/ AND a secret that says it is
+# synthetic. A real secret dropped into testdata/ is still reported.
+[[allowlists]]
+description = "Synthetic test values only"
+condition = "AND"
+paths = ['''(^|/)testdata/''']
+regexes = ['''(?i)fake|fortestsonly|example''']

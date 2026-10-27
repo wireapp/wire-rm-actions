@@ -1,0 +1,69 @@
+name: Wire release source
+description: >-
+  The source of a release candidate, the preamble of a prepare-release
+  workflow (ADR-0021 section 3). verify checks that the source branch exists,
+  before the checkout; resolve records the commit the checkout is at; summary
+  identifies the candidate in the job summary once the version is known.
+inputs:
+  mode:
+    description: verify, resolve or summary.
+    required: true
+  source-branch:
+    description: Branch to release from.
+    required: true
+  repository:
+    description: "verify: owner/name of the repository."
+    default: ${{ github.repository }}
+  token:
+    description: "verify: GitHub token with read access to the repository."
+    default: ${{ github.token }}
+  version:
+    description: "summary: the version, without the tag prefix."
+    default: ""
+  release-type:
+    description: "summary: the channel, ga, alpha, beta or rc."
+    default: ""
+  source-sha:
+    description: "summary: full sha of the source commit (the sha output of resolve)."
+    default: ""
+  base-tag:
+    description: "summary: latest release tag reachable from the source."
+    default: ""
+  from-tag:
+    description: "summary: the tag the changes are counted from."
+    default: ""
+  tag-prefix:
+    description: "summary: prefix of the git tag, shown before the version."
+    default: v
+  note:
+    description: "summary: a trailing line of the summary; empty for none."
+    default: ""
+  commits:
+    description: "summary: true or false; list the commits since from-tag."
+    default: "true"
+outputs:
+  sha:
+    description: "resolve: the full sha of the source commit."
+    value: ${{ steps.source.outputs.sha }}
+  commit-count:
+    description: "summary: the number of commits since from-tag."
+    value: ${{ steps.source.outputs.commit-count }}
+runs:
+  using: composite
+  steps:
+    - id: source
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        REPO: ${{ inputs.repository }}
+        MODE: ${{ inputs.mode }}
+        SOURCE_BRANCH: ${{ inputs.source-branch }}
+        VERSION: ${{ inputs.version }}
+        RELEASE_TYPE: ${{ inputs.release-type }}
+        SOURCE_SHA: ${{ inputs.source-sha }}
+        BASE_TAG: ${{ inputs.base-tag }}
+        FROM_TAG: ${{ inputs.from-tag }}
+        TAG_PREFIX: ${{ inputs.tag-prefix }}
+        NOTE: ${{ inputs.note }}
+        COMMITS: ${{ inputs.commits }}
+      run: "$GITHUB_ACTION_PATH/../scripts/release-source.sh"

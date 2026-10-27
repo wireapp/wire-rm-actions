@@ -1,0 +1,4 @@
+#!/bin/sh
+# Installed by make hooks (core.hooksPath). Lints the tree and scans the
+# staged changes for secrets.
+exec make -s lint secrets-scan STAGED=1

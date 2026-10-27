@@ -1,0 +1,79 @@
+name: Wire CI gate
+description: >-
+  The gates of a release preparation (ADR-0021 section 1): no GitHub Release
+  nor tag exists yet for the version, and the CI checks (check runs and legacy
+  statuses) of the source commit passed. force bypasses the checks gate only,
+  with a warning in the log and the run summary.
+inputs:
+  version:
+    description: "The version, without the tag prefix (release gate)."
+    default: ""
+  tag-prefix:
+    description: Prefix of the git tag.
+    default: v
+  source-commit:
+    description: "Full sha of the commit whose checks are verified (checks gate)."
+    default: ""
+  release-gate:
+    description: "true: fail when a release (draft or published) or the tag exists for the version."
+    default: "true"
+  checks-gate:
+    description: "true: fail unless the required checks of source-commit passed."
+    default: "true"
+  force:
+    description: "true: skip the checks gate, logged loudly. Never skips the release gate."
+    default: "false"
+  checks-from:
+    description: "all (every check run on the commit), list (required-checks) or branch-rules (the required status checks of the rulesets of branch)."
+    default: all
+  required-checks:
+    description: "list: check run names or status contexts, one per line."
+    default: ""
+  branch:
+    description: "branch-rules: the branch whose rulesets name the required checks."
+    default: ""
+  exclude-workflows:
+    description: Workflow files whose runs are ignored, one per line, added to the calling workflow (always ignored).
+    default: ""
+  exclude-dynamic:
+    description: "true: ignore the GitHub-managed dynamic workflows (Dependabot)."
+    default: "true"
+  repository:
+    description: owner/name of the repository.
+    default: ${{ github.repository }}
+  token:
+    description: "GitHub token: contents read, checks read, statuses read, actions read."
+    default: ${{ github.token }}
+outputs:
+  tag:
+    description: "The tag checked by the release gate."
+    value: ${{ steps.gate.outputs.tag }}
+  bypassed:
+    description: "true when force skipped the checks gate."
+    value: ${{ steps.gate.outputs.bypassed }}
+  checks-inspected:
+    description: Number of check runs (all) or required checks (list, branch-rules) verified.
+    value: ${{ steps.gate.outputs.checks-inspected }}
+  status-state:
+    description: "Combined state of the legacy statuses, none when there is none."
+    value: ${{ steps.gate.outputs.status-state }}
+runs:
+  using: composite
+  steps:
+    - id: gate
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        REPO: ${{ inputs.repository }}
+        VERSION: ${{ inputs.version }}
+        TAG_PREFIX: ${{ inputs.tag-prefix }}
+        SOURCE_COMMIT: ${{ inputs.source-commit }}
+        RELEASE_GATE: ${{ inputs.release-gate }}
+        CHECKS_GATE: ${{ inputs.checks-gate }}
+        FORCE: ${{ inputs.force }}
+        CHECKS_FROM: ${{ inputs.checks-from }}
+        REQUIRED_CHECKS: ${{ inputs.required-checks }}
+        BRANCH: ${{ inputs.branch }}
+        EXCLUDE_WORKFLOWS: ${{ inputs.exclude-workflows }}
+        EXCLUDE_DYNAMIC: ${{ inputs.exclude-dynamic }}
+      run: "$GITHUB_ACTION_PATH/../scripts/ci-gate.sh"

@@ -1,0 +1,122 @@
+# yamllint disable rule:truthy
+# Reusable dev build of a chart-only component (ADR-0018 version, ADR-0012
+# layout, declared to the release manager), with the OIDC token of the job as
+# its only credential: a federated quay robot for the chart, the release
+# manager audiences for the declaration. Components that also build images
+# call the actions of wireapp/wire-rm-actions directly, building their
+# images with the version output in between.
+name: Wire dev build
+
+on:
+  workflow_call:
+    inputs:
+      component:
+        description: Release manager component id.
+        required: true
+        type: string
+      chart-path:
+        required: true
+        type: string
+      chart-name:
+        type: string
+        default: ""
+      quay-robot:
+        description: >-
+          Federated robot account of the team, <organization>+<name>, with a
+          federation entry for this job's subject (see quay-login).
+        required: true
+        type: string
+      release-branches:
+        type: string
+        default: ^(dev|develop|release/.+|release-.+)$
+      registry:
+        type: string
+        default: quay.io
+      rm-staging-url:
+        description: Staging release manager URL; default the RM_STAGING_URL variable.
+        type: string
+        default: ""
+      rm-staging-audience:
+        description: OIDC audience of the staging release manager.
+        type: string
+        default: wire-release-manager-staging
+      rm-prod-url:
+        description: Prod release manager URL; default the RM_PROD_URL variable.
+        type: string
+        default: ""
+      rm-prod-audience:
+        description: OIDC audience of the prod release manager.
+        type: string
+        default: wire-release-manager-prod
+      rm-required:
+        type: boolean
+        default: false
+    outputs:
+      version:
+        value: ${{ jobs.build.outputs.version }}
+      digest:
+        value: ${{ jobs.build.outputs.digest }}
+
+permissions: {}
+
+jobs:
+  build:
+    name: Dev build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    concurrency:
+      group: wire-dev-build-${{ github.repository }}-${{ github.sha }}
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      digest: ${{ steps.chart.outputs.digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: v4.3.0
+      # Called from another repo, a local ./ path would resolve there: pin these
+      # to the same ref as this workflow when it is released.
+      - id: version
+        uses: wireapp/wire-rm-actions/version@v0.1.0
+        with:
+          release-branches: ${{ inputs.release-branches }}
+      - id: quay
+        uses: wireapp/wire-rm-actions/quay-login@v0.1.0
+        with:
+          robot: ${{ inputs.quay-robot }}
+          registry: ${{ inputs.registry }}
+          docker-login: "false"
+      - id: chart
+        uses: wireapp/wire-rm-actions/publish-chart@v0.1.0
+        with:
+          chart-path: ${{ inputs.chart-path }}
+          chart-name: ${{ inputs.chart-name }}
+          version: ${{ steps.version.outputs.version }}
+          registry: ${{ inputs.registry }}
+          channel: ${{ steps.version.outputs.kind == 'dev' && 'dev' || 'stable' }}
+          username: ${{ steps.quay.outputs.username }}
+          password: ${{ steps.quay.outputs.token }}
+      - uses: wireapp/wire-rm-actions/notify-rm@v0.1.0
+        with:
+          rm-staging-url: ${{ inputs.rm-staging-url || vars.RM_STAGING_URL }}
+          rm-staging-audience: ${{ inputs.rm-staging-audience }}
+          rm-prod-url: ${{ inputs.rm-prod-url || vars.RM_PROD_URL }}
+          rm-prod-audience: ${{ inputs.rm-prod-audience }}
+          component: ${{ inputs.component }}
+          version: ${{ steps.version.outputs.version }}
+          kind: ${{ steps.version.outputs.kind }}
+          repository: ${{ steps.chart.outputs.repository }}
+          digest: ${{ steps.chart.outputs.digest }}
+          required: ${{ inputs.rm-required }}
+      - name: Summary
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          REPOSITORY: ${{ steps.chart.outputs.repository }}
+          DIGEST: ${{ steps.chart.outputs.digest }}
+        run: echo "Built \`$VERSION\` → \`$REPOSITORY@$DIGEST\`" >>"$GITHUB_STEP_SUMMARY"

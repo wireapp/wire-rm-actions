@@ -1,0 +1,18 @@
+# Default ignored files
+.idea/*
+
+# Never commit secrets, keys or local machine files
+.DS_Store
+.env*
+*.pem
+*.key
+*secret*
+*.kubeconfig
+
+# Local tools and caches (make tools)
+.tools/
+.pytest_cache/
+__pycache__/
+
+# Local agent configuration
+.claude/

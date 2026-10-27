@@ -1,0 +1,55 @@
+name: Wire publish chart to S3
+description: >-
+  Push a packaged Helm chart to an S3 Helm repository (helm-s3), the interim
+  channel some deployments still read, never overwriting a published version:
+  the same package is a no-op, another content fails. The caller installs
+  Helm and jq.
+inputs:
+  chart-file:
+    description: Path of the packaged chart, <name>-<version>.tgz.
+    required: true
+  s3-repository:
+    description: Repository name, e.g. charts-develop, charts-master, charts-extra.
+    required: true
+  s3-url:
+    description: Repository URL; default s3://public.wire.com/<s3-repository>.
+    default: ""
+  helm-s3-version:
+    description: helm-s3 plugin version installed when missing.
+    default: 0.15.1
+  aws-access-key-id:
+    description: AWS access key id with write access to the bucket.
+    required: true
+  aws-secret-access-key:
+    description: AWS secret access key, with aws-access-key-id.
+    required: true
+  aws-region:
+    description: AWS region of the bucket; empty lets helm-s3 find it.
+    default: ""
+outputs:
+  name:
+    description: Chart name.
+    value: ${{ steps.push.outputs.name }}
+  version:
+    description: Chart version.
+    value: ${{ steps.push.outputs.version }}
+  repository:
+    description: The S3 URL of the repository.
+    value: ${{ steps.push.outputs.repository }}
+  status:
+    description: pushed, or present when the same package was already published.
+    value: ${{ steps.push.outputs.status }}
+runs:
+  using: composite
+  steps:
+    - id: push
+      shell: bash
+      env:
+        CHART_FILE: ${{ inputs.chart-file }}
+        S3_REPOSITORY: ${{ inputs.s3-repository }}
+        S3_URL: ${{ inputs.s3-url }}
+        HELM_S3_VERSION: ${{ inputs.helm-s3-version }}
+        AWS_ACCESS_KEY_ID: ${{ inputs.aws-access-key-id }}
+        AWS_SECRET_ACCESS_KEY: ${{ inputs.aws-secret-access-key }}
+        AWS_REGION: ${{ inputs.aws-region }}
+      run: "$GITHUB_ACTION_PATH/../scripts/publish-chart-s3.sh"

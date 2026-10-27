@@ -1,0 +1,65 @@
+name: Wire promote image
+description: >-
+  Promote a candidate image to its release tag by digest, without any rebuild
+  (ADR-0020 rule 3). Idempotent: a release tag already at the digest is a
+  no-op, a release tag at another digest fails. Logs in only when a user is
+  given (otherwise the job is already logged in, e.g. by quay-login).
+inputs:
+  repository:
+    description: Image repository, e.g. quay.io/wire/my-component.
+    required: true
+  digest:
+    description: sha256 digest of the candidate, from the release manifest.
+    required: true
+  tag:
+    description: Release tag to write, e.g. 1.41.4-rc.1.
+    required: true
+  username:
+    description: Registry user; empty when the job is already logged in.
+    default: ""
+  password:
+    description: Registry password or token, with username.
+    default: ""
+  crane-version:
+    description: Release of crane installed for this job when none is on PATH (vX.Y.Z); change crane-sha256 with it.
+    default: v0.22.1
+  crane-sha256:
+    description: sha256 of the crane release archive for the runner (default the Linux x86_64 archive of the default version; another version or architecture needs its own).
+    default: 0ab7a1d6932a213aed964ce97666c3077fe691c8606413674a8b3e0b9ec4cda0
+outputs:
+  digest:
+    description: The digest the release tag resolves to.
+    value: ${{ steps.promote.outputs.digest }}
+  status:
+    description: promoted, or present when the release tag was already at the digest.
+    value: ${{ steps.promote.outputs.status }}
+runs:
+  using: composite
+  steps:
+    # A missing crane is installed from its release archive, checked against
+    # its sha256, in a directory of this job only, put on PATH by the steps
+    # below (never through GITHUB_PATH, which would reach every later step).
+    - shell: bash
+      env:
+        CRANE_VERSION: ${{ inputs.crane-version }}
+        CRANE_SHA256: ${{ inputs.crane-sha256 }}
+        DEST: ${{ runner.temp }}/wire-crane
+      run: "$GITHUB_ACTION_PATH/../scripts/install-crane.sh"
+    - id: promote
+      shell: bash
+      env:
+        REPOSITORY: ${{ inputs.repository }}
+        DIGEST: ${{ inputs.digest }}
+        TAG: ${{ inputs.tag }}
+        REGISTRY_USER: ${{ inputs.username }}
+        REGISTRY_PASSWORD: ${{ inputs.password }}
+        CRANE_BIN: ${{ runner.temp }}/wire-crane
+      run: PATH="$CRANE_BIN:$PATH" "$GITHUB_ACTION_PATH/../scripts/promote-image.sh"
+    # The login lands in ~/.docker/config.json on the runner's disk: removed
+    # here, even on failure, when this action made it.
+    - if: always() && inputs.username != ''
+      shell: bash
+      env:
+        REPOSITORY: ${{ inputs.repository }}
+        CRANE_BIN: ${{ runner.temp }}/wire-crane
+      run: PATH="$CRANE_BIN:$PATH" crane auth logout "${REPOSITORY%%/*}" || true
