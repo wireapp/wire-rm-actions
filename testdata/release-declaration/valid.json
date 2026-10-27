@@ -1,0 +1,63 @@
+{
+  "schemaVersion": "wire.component-release/v1alpha2",
+  "component": "my-component",
+  "version": "4.25.0",
+  "summary": "my-component 4.25.0: group sync, a counter fix and a removed endpoint.",
+  "upgrade_from": ">=4.23.0",
+  "changes": [
+    {
+      "kind": "removed",
+      "description": "The legacy /api/v1/sync endpoint is removed: point integrations at /api/v2/sync before upgrading.",
+      "breaking": true,
+      "links": [
+        "https://github.com/wireapp/my-component/pull/10600"
+      ]
+    },
+    {
+      "kind": "added",
+      "description": "group synchronisation, off by default (FEATURE_SSO_GROUP_SYNC).",
+      "breaking": false,
+      "links": []
+    },
+    {
+      "kind": "fixed",
+      "description": "The member counter shows the number of members (WPB-12345, affected >=4.24.0 <4.25.0).",
+      "breaking": false,
+      "links": []
+    },
+    {
+      "kind": "security",
+      "description": "GHSA-xxxx-yyyy-zzzz: a dependency with a prototype pollution advisory, affected <4.25.0.",
+      "breaking": false,
+      "links": [
+        "https://github.com/advisories/GHSA-xxxx-yyyy-zzzz"
+      ]
+    }
+  ],
+  "migrations": [
+    {
+      "kind": "schema",
+      "automatic": true,
+      "description": "Adds the groups table.",
+      "order": "before rollout",
+      "downtime": "none",
+      "reversible": true
+    }
+  ],
+  "configuration": [
+    {
+      "key": "config.FEATURE_SSO_GROUP_SYNC",
+      "change": "added",
+      "required": false,
+      "default": "false",
+      "description": "Enables the group synchronisation; leave it off until the IdP is configured."
+    },
+    {
+      "key": "config.LEGACY_SYNC_URL",
+      "change": "removed",
+      "required": false,
+      "default": null,
+      "description": "No longer read; delete it from the values."
+    }
+  ]
+}

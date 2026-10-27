@@ -1,0 +1,30 @@
+providesApis:
+  - api: wire-server/client-api
+    versions:
+      supported: [4, 5, 6]
+      deprecated: [4]
+      development: [7]
+  - api: wire-server/scim-api
+    versions: ["2.0.0"]
+consumesApis:
+  - api: wire-server/admin-api
+    versions: "^0"
+    reason: Informational, version 0.
+  - api: wire-server/client-api
+    versions: [1, 2, 3, 5]
+    class: mandatory
+    reason: Negotiated through /api-version.
+dependsOn:
+  - resource: postgresql
+    range: ">=17.0.0"
+    class: mandatory
+  - platform: ingress-nginx
+    range: "*"
+    class: alternative
+    reason: ingress.enabled.
+  - platform: kubernetes
+    range: ">=1.29.0"
+includes:
+  - component: sftd
+    version: "4.1.0"
+    reason: Shipped inside.

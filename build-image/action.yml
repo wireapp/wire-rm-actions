@@ -1,0 +1,132 @@
+name: Wire build image
+description: >-
+  Build a container image from a Dockerfile and push it to
+  <image>:<tag> with its provenance and SBOM attestations, never overwriting
+  a tag that is already in the registry. Outputs the digest for the release
+  manifest. Logs out of the registry when it logged in.
+inputs:
+  dockerfile:
+    description: >-
+      Path of the Dockerfile. A <Dockerfile>.dockerignore next to it wins over
+      <context>/.dockerignore.
+    required: true
+  image:
+    description: Image repository, e.g. quay.io/wire/my-component.
+    required: true
+  version:
+    description: >-
+      The version, from the version action: the
+      org.opencontainers.image.version label and the default tag.
+    required: true
+  tag:
+    description: >-
+      Tag to push; default the version. A release candidate passes
+      <version>-candidate-<run id>.
+    default: ""
+  context:
+    description: Build context directory.
+    default: .
+  build-args:
+    description: >-
+      KEY=VALUE lines passed as --build-arg. Never secrets: build arguments
+      stay in the image history.
+    default: ""
+  build-contexts:
+    description: >-
+      name=path lines passed as --build-context: files the Dockerfile reads
+      from outside the context (COPY --from=<name>).
+    default: ""
+  target:
+    description: Dockerfile stage to build; default the last one.
+    default: ""
+  platforms:
+    description: Comma-separated platforms, e.g. linux/amd64,linux/arm64.
+    default: linux/amd64
+  revision:
+    description: Source commit, for the OCI revision label; default the run commit.
+    default: ""
+  labels:
+    description: >-
+      More OCI labels, KEY=VALUE lines (e.g. org.opencontainers.image.title,
+      description, url), set as label and as annotation like the stamped ones.
+      Not version, revision, source, created nor quay.expires-after: the action
+      sets them.
+    default: ""
+  provenance:
+    description: >-
+      SLSA provenance attestation pushed with the image: mode=max, mode=min,
+      true (= mode=min) or false.
+    default: mode=max
+  sbom:
+    description: SBOM attestation pushed with the image, true or false.
+    default: "true"
+  expires-after:
+    description: >-
+      Dev builds only: Quay deletes the image after this delay (e.g. 90d,
+      hours h, days d or weeks w); empty keeps it. Never on a release
+      candidate: the promoted release tag shares its manifest.
+    default: ""
+  username:
+    description: >-
+      Registry user (a Quay robot account). Empty: the job is already logged
+      in, e.g. by quay-login, and the action neither logs in nor out.
+    default: ""
+  password:
+    description: Registry password or token, with username.
+    default: ""
+outputs:
+  image:
+    description: The image repository.
+    value: ${{ steps.build.outputs.image }}
+  tag:
+    description: The tag pushed (or already present).
+    value: ${{ steps.build.outputs.tag }}
+  digest:
+    description: sha256 digest of the image, read from the registry.
+    value: ${{ steps.build.outputs.digest }}
+  ref:
+    description: <image>@<digest>, the immutable reference.
+    value: ${{ steps.build.outputs.ref }}
+  status:
+    description: pushed, or present when the tag was already in the registry.
+    value: ${{ steps.build.outputs.status }}
+runs:
+  using: composite
+  steps:
+    - if: contains(inputs.platforms, ',')
+      uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+    - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+    - if: inputs.username != ''
+      shell: bash
+      env:
+        IMAGE: ${{ inputs.image }}
+        REGISTRY_USER: ${{ inputs.username }}
+        REGISTRY_PASSWORD: ${{ inputs.password }}
+      run: printf '%s' "$REGISTRY_PASSWORD" | docker login "${IMAGE%%/*}" --username "$REGISTRY_USER" --password-stdin
+    - id: build
+      shell: bash
+      env:
+        IMAGE: ${{ inputs.image }}
+        DOCKERFILE: ${{ inputs.dockerfile }}
+        VERSION: ${{ inputs.version }}
+        TAG: ${{ inputs.tag }}
+        CONTEXT: ${{ inputs.context }}
+        BUILD_ARGS: ${{ inputs.build-args }}
+        BUILD_CONTEXTS: ${{ inputs.build-contexts }}
+        TARGET: ${{ inputs.target }}
+        PLATFORMS: ${{ inputs.platforms }}
+        REVISION: ${{ inputs.revision }}
+        LABELS: ${{ inputs.labels }}
+        PROVENANCE: ${{ inputs.provenance }}
+        SBOM: ${{ inputs.sbom }}
+        EXPIRES_AFTER: ${{ inputs.expires-after }}
+        BUILDKIT_PROGRESS: plain
+      run: "$GITHUB_ACTION_PATH/../scripts/build-image.sh"
+    # The login lands in ~/.docker/config.json on the runner's disk: removed
+    # here, even on failure, so the later steps of the job (and, on a
+    # self-hosted runner, the later jobs) never find the password.
+    - if: always() && inputs.username != ''
+      shell: bash
+      env:
+        IMAGE: ${{ inputs.image }}
+      run: docker logout "${IMAGE%%/*}" || true

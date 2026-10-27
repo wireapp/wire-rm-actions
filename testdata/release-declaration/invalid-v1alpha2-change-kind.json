@@ -1,0 +1,42 @@
+{
+  "schemaVersion": "wire.component-release/v1alpha2",
+  "component": "my-component",
+  "version": "4.25.0",
+  "summary": "Adds the seat counter of the subscription. Nothing to do before deploying.",
+  "upgrade_from": ">=4.24.0",
+  "changes": [
+    {
+      "kind": "improved",
+      "description": "The status page shows the groups of the team.",
+      "breaking": false,
+      "links": [
+        "https://github.com/wireapp/my-component/pull/10646"
+      ]
+    }
+  ],
+  "migrations": [
+    {
+      "kind": "manual",
+      "automatic": false,
+      "description": "Nothing to migrate in the database; reload the config map.",
+      "downtime": "none",
+      "reversible": true
+    }
+  ],
+  "configuration": [
+    {
+      "key": "SEAT_COUNTER",
+      "change": "added",
+      "required": false,
+      "default": "on",
+      "description": "Shows the seat counter."
+    }
+  ],
+  "support": {
+    "releaseCycle": "4.25",
+    "releaseDate": "2026-10-20",
+    "lts": false,
+    "eoas": "2027-01-20",
+    "eol": "2027-04-20"
+  }
+}

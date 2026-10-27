@@ -1,0 +1,77 @@
+name: Wire release inputs
+description: >-
+  Validate the dispatch inputs of a prepare-release or publish-release workflow
+  (ADR-0021 section 1) before any checkout. prepare: source branch, type,
+  version bump, force, release manager request, expected version, release
+  note, declaration and origin, within the 60 000 character budget. publish:
+  version, release id, release manager request and origin.
+inputs:
+  mode:
+    description: prepare or publish.
+    default: prepare
+  source-branch:
+    description: "prepare: branch to release from; must match source-branches."
+    default: ""
+  type:
+    description: "prepare: ga, alpha, beta or rc."
+    default: ""
+  version-bump:
+    description: "prepare: patch, minor or major."
+    default: ""
+  force:
+    description: "prepare: true or false; empty means false."
+    default: ""
+  version:
+    description: "publish: X.Y.Z or X.Y.Z-<alpha|beta|rc>.N."
+    default: ""
+  release-id:
+    description: "publish: numeric id of the draft release; empty to find it by version."
+    default: ""
+  request-id:
+    description: Release manager request (UUID4); empty on a manual run.
+    default: ""
+  expected-version:
+    description: The version the release manager previewed; empty to skip the check.
+    default: ""
+  release-note:
+    description: Release note text; only its size is checked here.
+    default: ""
+  release-declaration:
+    description: JSON text of the release declaration; only its shape is checked here.
+    default: ""
+  rm-origin:
+    description: staging, prod or local; required with request-id, refused without.
+    default: ""
+  source-branches:
+    description: Regex of the releasable branches.
+    default: ^(dev|release/[0-9]+\.[0-9]+)$
+outputs:
+  rm-driven:
+    description: true when the run comes from a release manager request.
+    value: ${{ steps.inputs.outputs.rm-driven }}
+  force:
+    description: "prepare: true or false."
+    value: ${{ steps.inputs.outputs.force }}
+  release-type:
+    description: "prepare: the validated type; publish: ga, alpha, beta or rc, from the version."
+    value: ${{ steps.inputs.outputs.release-type }}
+runs:
+  using: composite
+  steps:
+    - id: inputs
+      shell: bash
+      env:
+        MODE: ${{ inputs.mode }}
+        VERSION: ${{ inputs.version }}
+        RELEASE_ID: ${{ inputs.release-id }}
+        SOURCE_BRANCH: ${{ inputs.source-branch }}
+        RELEASE_TYPE: ${{ inputs.type }}
+        VERSION_BUMP: ${{ inputs.version-bump }}
+        FORCE: ${{ inputs.force }}
+        REQUEST_ID: ${{ inputs.request-id }}
+        EXPECTED_VERSION: ${{ inputs.expected-version }}
+        RELEASE_NOTE: ${{ inputs.release-note }}
+        RELEASE_DECLARATION: ${{ inputs.release-declaration }}
+        RM_ORIGIN: ${{ inputs.rm-origin }}
+        SOURCE_BRANCHES: ${{ inputs.source-branches }}
+      run: "$GITHUB_ACTION_PATH/../scripts/release-inputs.sh"

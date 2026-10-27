@@ -1,0 +1,124 @@
+name: Wire draft release
+description: >-
+  The draft GitHub Release of a release candidate (ADR-0021 sections 3 and 4).
+  create opens the draft with its body and assets; resolve finds and checks
+  the draft and downloads its assets; publish replaces assets, decides
+  make_latest and publishes the draft, which creates the tag.
+inputs:
+  mode:
+    description: create, resolve or publish.
+    required: true
+  version:
+    description: The version, without the tag prefix.
+    required: true
+  tag-prefix:
+    description: Prefix of the git tag.
+    default: v
+  target:
+    description: "create: full sha of the commit the tag will point to."
+    default: ""
+  title:
+    description: "create: title of the release, default the tag."
+    default: ""
+  body-file:
+    description: "create: file holding the release body (markdown), empty for no body."
+    default: ""
+  prerelease:
+    description: "create: auto (the version has a pre-release suffix), true or false."
+    default: auto
+  assets:
+    description: "create: files to attach, one per line; resolve: more asset names to download."
+    default: ""
+  release-id:
+    description: "resolve, publish: numeric id of the draft; empty finds the only draft with the tag."
+    default: ""
+  expected-commit:
+    description: "resolve, publish: the commit the draft must target (optional)."
+    default: ""
+  asset-dir:
+    description: "resolve: where the assets are downloaded, default $RUNNER_TEMP/release-assets."
+    default: ""
+  download:
+    description: "resolve: none, manifest, manifest-files (the manifest and every file it names) or all."
+    default: manifest
+  manifest-name:
+    description: "resolve: asset name of the release manifest."
+    default: release-manifest.json
+  replace-assets:
+    description: "publish: files replacing assets of the draft before publication, one per line, <path> or <name>=<path>."
+    default: ""
+  make-latest:
+    description: "publish: auto (a GA from latest-branches with no newer GA tag), true, false or legacy."
+    default: auto
+  source-ref:
+    description: "publish: source branch of the candidate (make-latest auto)."
+    default: ""
+  latest-branches:
+    description: "publish: regex of the source branches whose GA is Latest (make-latest auto)."
+    default: ^dev$
+  repository:
+    description: owner/name of the repository.
+    default: ${{ github.repository }}
+  token:
+    description: "GitHub token: contents write (drafts are listed to push access only)."
+    default: ${{ github.token }}
+outputs:
+  id:
+    description: Numeric id of the release.
+    value: ${{ steps.release.outputs.id }}
+  tag:
+    description: The tag of the release.
+    value: ${{ steps.release.outputs.tag }}
+  url:
+    description: "html_url of the release: the draft URL (create, resolve), the published one (publish)."
+    value: ${{ steps.release.outputs.url }}
+  published-url:
+    description: "create: the URL the release will have once published."
+    value: ${{ steps.release.outputs.published-url }}
+  target-commitish:
+    description: "resolve: the commit the draft targets."
+    value: ${{ steps.release.outputs.target-commitish }}
+  prerelease:
+    description: "resolve: true for a pre-release."
+    value: ${{ steps.release.outputs.prerelease }}
+  tag-exists:
+    description: "resolve: true when the tag already exists at the target commit."
+    value: ${{ steps.release.outputs.tag-exists }}
+  asset-dir:
+    description: "resolve: where the assets were downloaded."
+    value: ${{ steps.release.outputs.asset-dir }}
+  manifest:
+    description: "resolve: path of the downloaded manifest, empty when not downloaded."
+    value: ${{ steps.release.outputs.manifest }}
+  body-file:
+    description: "resolve: file holding the body of the draft."
+    value: ${{ steps.release.outputs.body-file }}
+  make-latest:
+    description: "publish: the make_latest value sent."
+    value: ${{ steps.release.outputs.make-latest }}
+runs:
+  using: composite
+  steps:
+    - id: release
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        REPO: ${{ inputs.repository }}
+        MODE: ${{ inputs.mode }}
+        VERSION: ${{ inputs.version }}
+        TAG_PREFIX: ${{ inputs.tag-prefix }}
+        TARGET: ${{ inputs.target }}
+        TITLE: ${{ inputs.title }}
+        BODY_FILE: ${{ inputs.body-file }}
+        PRERELEASE: ${{ inputs.prerelease }}
+        ASSETS: ${{ inputs.assets }}
+        RELEASE_ID: ${{ inputs.release-id }}
+        EXPECTED_COMMIT: ${{ inputs.expected-commit }}
+        ASSET_DIR: ${{ inputs.asset-dir }}
+        DOWNLOAD: ${{ inputs.download }}
+        MANIFEST_NAME: ${{ inputs.manifest-name }}
+        REPLACE_ASSETS: ${{ inputs.replace-assets }}
+        MAKE_LATEST: ${{ inputs.make-latest }}
+        SOURCE_REF: ${{ inputs.source-ref }}
+        LATEST_BRANCHES: ${{ inputs.latest-branches }}
+      run: "$GITHUB_ACTION_PATH/../scripts/draft-release.sh"

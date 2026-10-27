@@ -1,0 +1,209 @@
+name: Wire release manifest
+description: >-
+  Write, verify or complete the release manifest of a build
+  (wire.component-release-manifest/v1alpha1, ADR-0020 section 2). write
+  freezes the manifest of a release candidate (ga, alpha, beta, rc) or of a
+  dev build (dev); verify checks downloaded release assets against it before
+  publication; complete appends the publication block without touching the
+  frozen part.
+inputs:
+  mode:
+    description: write, verify or complete.
+    required: true
+  manifest:
+    description: Path of the manifest (write output, verify and complete input).
+    default: release-manifest.json
+  component:
+    description: "write: release manager component id."
+    default: ""
+  version:
+    description: "write: the version; verify: the expected version (optional)."
+    default: ""
+  release-type:
+    description: "write: ga, alpha, beta, rc or dev."
+    default: ""
+  tag-prefix:
+    description: Prefix of the git tag in source.tag.
+    default: v
+  release-branches:
+    description: "verify: regex of the source refs a release may come from."
+    default: ^(dev|release/[0-9]+\.[0-9]+)$
+  source-repository:
+    description: "write: URL of the source repository."
+    default: ""
+  source-ref:
+    description: "write: source branch."
+    default: ""
+  source-commit:
+    description: "write: full source commit sha; verify: the expected commit (optional)."
+    default: ""
+  image-repository:
+    description: "write: image repository, e.g. quay.io/wire/<name>."
+    default: ""
+  image-digest:
+    description: "write: sha256 digest of the image."
+    default: ""
+  image-candidate-tag:
+    description: "write: candidate tag of the image (releases)."
+    default: ""
+  chart-repository:
+    description: "write: oci:// repository of the chart."
+    default: ""
+  chart-file:
+    description: "write: file name of the chart package (releases)."
+    default: ""
+  chart-sha256:
+    description: "write: sha256 of the chart package (releases)."
+    default: ""
+  chart-digest:
+    description: "write: sha256 digest of the pushed chart (dev builds)."
+    default: ""
+  compatibility-file:
+    description: "write: the compatibility file; empty reads publication/compatibility.yaml (ADR-0020)."
+    default: ""
+  documents-json:
+    description: "write: the documents object (release-documents output)."
+    default: "{}"
+  inputs-json:
+    description: >-
+      write: the build inputs other than the source repository (e.g. the
+      configuration repository), a JSON array of objects with a name, written
+      as `inputs`.
+    default: "[]"
+  extra-artifacts-json:
+    description: >-
+      write: the artifacts other than the image and the chart (e.g. a
+      deployment bundle), a JSON array of {type, file, sha256}, appended after
+      the chart. file is a plain name, type is not image or chart.
+    default: "[]"
+  expires-after:
+    description: >-
+      write, dev builds only: the delay after which the build expires, e.g.
+      90d (hours h, days d, weeks w), written as expires_at.
+    default: ""
+  request-id:
+    description: "write: release manager request, empty on the manual path."
+    default: ""
+  rm-origin:
+    description: "write: staging, prod or local, with request-id."
+    default: ""
+  check-source-branch:
+    description: >-
+      verify: true or false. When true, refuse a candidate whose source commit
+      is no longer an ancestor of origin/<source ref>; the checkout needs
+      fetch-depth 0 and the branch.
+    default: "false"
+  asset-dir:
+    description: "verify: where the release assets were downloaded."
+    default: .
+  run-url:
+    description: "complete: URL of the publishing run."
+    default: ""
+  digests-json:
+    description: "complete: object of published reference -> sha256 digest."
+    default: "{}"
+  out:
+    description: "complete: output path, default in place."
+    default: ""
+outputs:
+  manifest:
+    description: Path of the manifest written (write, complete).
+    value: ${{ steps.manifest.outputs.manifest }}
+  version:
+    description: "verify: the version."
+    value: ${{ steps.manifest.outputs.version }}
+  kind:
+    description: "verify: ga or prerelease."
+    value: ${{ steps.manifest.outputs.kind }}
+  stage:
+    description: "verify: alpha, beta or rc, empty for a GA."
+    value: ${{ steps.manifest.outputs.stage }}
+  type:
+    description: "verify: ga, alpha, beta or rc."
+    value: ${{ steps.manifest.outputs.type }}
+  source-ref:
+    description: "verify: source ref read from the manifest."
+    value: ${{ steps.manifest.outputs.source-ref }}
+  source-commit:
+    description: "verify: source commit read from the manifest."
+    value: ${{ steps.manifest.outputs.source-commit }}
+  image-repository:
+    description: "verify: image repository read from the manifest."
+    value: ${{ steps.manifest.outputs.image-repository }}
+  image-tag:
+    description: "verify: image tag read from the manifest."
+    value: ${{ steps.manifest.outputs.image-tag }}
+  image-digest:
+    description: "verify: image digest read from the manifest."
+    value: ${{ steps.manifest.outputs.image-digest }}
+  image-candidate-tag:
+    description: "verify: image candidate tag read from the manifest."
+    value: ${{ steps.manifest.outputs.image-candidate-tag }}
+  chart-repository:
+    description: "verify: chart repository read from the manifest."
+    value: ${{ steps.manifest.outputs.chart-repository }}
+  chart-file:
+    description: "verify: chart file read from the manifest."
+    value: ${{ steps.manifest.outputs.chart-file }}
+  chart-path:
+    description: "verify: path of the downloaded chart package."
+    value: ${{ steps.manifest.outputs.chart-path }}
+  chart-sha256:
+    description: "verify: chart sha256 read from the manifest."
+    value: ${{ steps.manifest.outputs.chart-sha256 }}
+  request-id:
+    description: "verify: request id read from the manifest."
+    value: ${{ steps.manifest.outputs.request-id }}
+  rm-origin:
+    description: "verify: rm origin read from the manifest."
+    value: ${{ steps.manifest.outputs.rm-origin }}
+  note-file:
+    description: "verify: note file read from the manifest."
+    value: ${{ steps.manifest.outputs.note-file }}
+  declaration-file:
+    description: "verify: declaration file read from the manifest."
+    value: ${{ steps.manifest.outputs.declaration-file }}
+  extra-artifacts-json:
+    description: >-
+      verify: the extra artifacts, a JSON array of {type, file, path, sha256}
+      with the path of the downloaded file; [] when there is none.
+    value: ${{ steps.manifest.outputs.extra-artifacts-json }}
+runs:
+  using: composite
+  steps:
+    - id: manifest
+      shell: bash
+      env:
+        MODE: ${{ inputs.mode }}
+        MANIFEST: ${{ inputs.manifest }}
+        COMPONENT: ${{ inputs.component }}
+        VERSION: ${{ inputs.version }}
+        RELEASE_TYPE: ${{ inputs.release-type }}
+        TAG_PREFIX: ${{ inputs.tag-prefix }}
+        RELEASE_BRANCHES: ${{ inputs.release-branches }}
+        SOURCE_REPOSITORY: ${{ inputs.source-repository }}
+        SOURCE_REF: ${{ inputs.source-ref }}
+        SOURCE_COMMIT: ${{ inputs.source-commit }}
+        IMAGE_REPOSITORY: ${{ inputs.image-repository }}
+        IMAGE_DIGEST: ${{ inputs.image-digest }}
+        IMAGE_CANDIDATE_TAG: ${{ inputs.image-candidate-tag }}
+        CHART_REPOSITORY: ${{ inputs.chart-repository }}
+        CHART_FILE: ${{ inputs.chart-file }}
+        CHART_SHA256: ${{ inputs.chart-sha256 }}
+        CHART_DIGEST: ${{ inputs.chart-digest }}
+        COMPATIBILITY_FILE: ${{ inputs.compatibility-file }}
+        DOCUMENTS_JSON: ${{ inputs.documents-json }}
+        INPUTS_JSON: ${{ inputs.inputs-json }}
+        EXTRA_ARTIFACTS_JSON: ${{ inputs.extra-artifacts-json }}
+        EXPIRES_AFTER: ${{ inputs.expires-after }}
+        REQUEST_ID: ${{ inputs.request-id }}
+        RM_ORIGIN: ${{ inputs.rm-origin }}
+        CHECK_SOURCE_BRANCH: ${{ inputs.check-source-branch }}
+        ASSET_DIR: ${{ inputs.asset-dir }}
+        RUN_URL: ${{ inputs.run-url }}
+        DIGESTS_JSON: ${{ inputs.digests-json }}
+        OUT: ${{ inputs.out }}
+        BUILD_WORKFLOW: ${{ github.workflow_ref }}
+        BUILD_RUN_ID: ${{ github.run_id }}
+        BUILD_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      run: "$GITHUB_ACTION_PATH/../scripts/release-manifest.sh"

@@ -1,0 +1,23 @@
+providesApis:
+  - api: wire-server/client-api
+    versions:
+      supported: "1-3"
+  - versions: []
+consumesApis:
+  - api: my-component/status-api
+    versions: "^1"
+    class: optional
+  - api: wire-server/client-api
+    class: required
+    versions: [1]
+dependsOn:
+  - resource: sqs
+    platform: kubernetes
+    range: "*"
+  - component: wire-server
+includes:
+  - component: sftd
+    version: "1.0.0"
+    range: ">=1.0.0"
+    class: mandatory
+extra: true

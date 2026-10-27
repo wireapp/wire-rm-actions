@@ -1,0 +1,90 @@
+name: Wire publish chart
+description: >-
+  Push a Helm chart to oci://<registry>/wire/charts/<channel>/<name>
+  (ADR-0012), never overwriting a published version: either package a chart
+  directory with version == appVersion (dev builds), or push a packaged .tgz
+  as is (the asset of a draft release). Logs in only when a user is given,
+  and logs out when done.
+inputs:
+  chart-path:
+    description: Path of the chart directory to package; exclusive with chart-file.
+    default: ""
+  chart-file:
+    description: >-
+      Path of a packaged chart (<name>-<version>.tgz) pushed as is, without
+      repackaging; exclusive with chart-path and expires-after.
+    default: ""
+  version:
+    description: >-
+      The version, from the version action; required with chart-path, checked
+      against the package with chart-file.
+    default: ""
+  chart-name:
+    description: Chart name; default the Chart.yaml name (checked with chart-file).
+    default: ""
+  registry:
+    description: OCI registry host.
+    default: quay.io
+  channel:
+    description: Registry channel (dev, stable).
+    default: dev
+  expires-after:
+    description: >-
+      Dev channel, chart-path only: Quay deletes the version after this delay
+      (e.g. 90d, hours h, days d or weeks w); empty keeps it. Needs oras on
+      PATH (oras-project/setup-oras).
+    default: ""
+  attempts:
+    description: >-
+      chart-file only: how many times to try the push (10 s apart), the
+      presence check running again before each one, since a failed push
+      (Quay answers 500 on a manifest that was committed) may have landed. 1
+      does not retry.
+    default: "1"
+  username:
+    description: Registry user (a quay robot account); empty when the job is already logged in.
+    default: ""
+  password:
+    description: Registry password or token, with username.
+    default: ""
+outputs:
+  repository:
+    description: oci://<registry>/wire/charts/<channel>/<name>
+    value: ${{ steps.push.outputs.repository }}
+  digest:
+    description: sha256 digest of the chart.
+    value: ${{ steps.push.outputs.digest }}
+  status:
+    description: pushed, or present when the version was already in the registry.
+    value: ${{ steps.push.outputs.status }}
+runs:
+  using: composite
+  steps:
+    - if: inputs.username != ''
+      shell: bash
+      env:
+        REGISTRY: ${{ inputs.registry }}
+        REGISTRY_USER: ${{ inputs.username }}
+        REGISTRY_PASSWORD: ${{ inputs.password }}
+      run: printf '%s' "$REGISTRY_PASSWORD" | helm registry login "$REGISTRY" -u "$REGISTRY_USER" --password-stdin
+    - id: push
+      shell: bash
+      env:
+        CHART_PATH: ${{ inputs.chart-path }}
+        CHART_FILE: ${{ inputs.chart-file }}
+        CHART_NAME: ${{ inputs.chart-name }}
+        VERSION: ${{ inputs.version }}
+        REGISTRY: ${{ inputs.registry }}
+        CHANNEL: ${{ inputs.channel }}
+        EXPIRES_AFTER: ${{ inputs.expires-after }}
+        ATTEMPTS: ${{ inputs.attempts }}
+      run: "$GITHUB_ACTION_PATH/../scripts/publish-chart.sh"
+    # The login lands in the helm registry config on the runner's disk: removed
+    # here, even on failure, when this action made it, so the later steps of
+    # the job (and, on a self-hosted runner, the later jobs) never find the
+    # password.
+    - if: always() && inputs.username != ''
+      shell: bash
+      env:
+        REGISTRY: ${{ inputs.registry }}
+      run: helm registry logout "$REGISTRY" || true

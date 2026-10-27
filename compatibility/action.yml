@@ -1,0 +1,31 @@
+name: Wire compatibility
+description: >-
+  Check a component's compatibility file (ADR-0020 section 3) and write it as
+  JSON, in the ADR-0020 shape and in the provides / requires shape the release
+  manager reads today. Reads publication/compatibility.yaml.
+inputs:
+  file:
+    description: Path of the compatibility file; empty reads publication/compatibility.yaml.
+    default: ""
+  output-dir:
+    description: Directory for the JSON files; empty uses a new temporary directory.
+    default: ""
+outputs:
+  file:
+    description: The compatibility file that was read.
+    value: ${{ steps.compatibility.outputs.file }}
+  compatibility:
+    description: Path of the ADR-0020 document as JSON.
+    value: ${{ steps.compatibility.outputs.compatibility }}
+  manifest-compatibility:
+    description: Path of the provides / requires / includes object for a wire.component-release-manifest/v1alpha1 manifest.
+    value: ${{ steps.compatibility.outputs.manifest-compatibility }}
+runs:
+  using: composite
+  steps:
+    - id: compatibility
+      shell: bash
+      env:
+        FILE: ${{ inputs.file }}
+        OUTPUT_DIR: ${{ inputs.output-dir }}
+      run: "$GITHUB_ACTION_PATH/../scripts/compatibility.sh"

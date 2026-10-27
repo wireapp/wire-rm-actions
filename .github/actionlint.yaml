@@ -1,0 +1,5 @@
+# actionlint configuration (https://github.com/rhysd/actionlint/blob/main/docs/config.md).
+# Every vars.X a workflow reads; actionlint flags any other name (typos).
+config-variables:
+  - RM_STAGING_URL
+  - RM_PROD_URL

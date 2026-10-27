@@ -1,0 +1,83 @@
+name: Wire version
+description: >-
+  The ADR-0018 version, in one of two modes. build (default): the version of
+  the checked-out commit, the tag on a tag build, else a dev build derived from
+  the nearest GA or pre-release tag. release: the next explicit release version
+  of a branch (X.Y.Z or X.Y.Z-<alpha|beta|rc>.N) for a prepare-release
+  workflow, from the release tags reachable from it. Both need a checkout with
+  fetch-depth 0 (tags and history).
+inputs:
+  mode:
+    description: build or release.
+    default: build
+  release-branches:
+    description: "build: regex of the dev/release branches (no <branch> identifier in their versions)."
+    default: ^(dev|develop|release/.+|release-.+)$
+  tag-prefix:
+    description: Prefix of the release tags.
+    default: v
+  source-branch:
+    description: "release: the branch to release from (the trunk or a release/X.Y line), as <remote>/<branch>."
+    default: ""
+  release-type:
+    description: "release: ga, alpha, beta or rc."
+    default: ""
+  version-bump:
+    description: "release: patch, minor or major. From a GA, the bump of the next GA or first pre-release; from a pre-release, patch continues it and minor or major open a new line from its base."
+    default: patch
+  expected-version:
+    description: "release: the version the release manager previewed; the run fails when it differs from the result."
+    default: ""
+  remote:
+    description: "release: the git remote holding the source branch."
+    default: origin
+outputs:
+  version:
+    description: "The version: 5.2.1-20260930120000.gabcdef0 (build), 5.2.1 or 5.2.1-rc.1 (release)."
+    value: ${{ steps.compute.outputs.version || steps.release.outputs.version }}
+  kind:
+    description: dev, ga or prerelease.
+    value: ${{ steps.compute.outputs.kind || steps.release.outputs.kind }}
+  base-tag:
+    description: "The tag the version derives from (release: the latest release reachable from the branch)."
+    value: ${{ steps.compute.outputs.base_tag || steps.release.outputs.latest-tag }}
+  sha:
+    description: "The full commit SHA (release: the head of the source branch)."
+    value: ${{ steps.compute.outputs.sha || steps.release.outputs.sha }}
+  tag:
+    description: "release: the tag the publication will create, <tag-prefix><version>."
+    value: ${{ steps.release.outputs.tag }}
+  from-tag:
+    description: "release: the changelog base, the preceding GA for a GA or a first pre-release, the latest release otherwise."
+    value: ${{ steps.release.outputs.from-tag }}
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        MODE: ${{ inputs.mode }}
+      run: |
+        case "$MODE" in
+          build | release) ;;
+          *) echo "::error::mode must be build or release (got: '$MODE')"; exit 1 ;;
+        esac
+    - id: compute
+      if: inputs.mode == 'build'
+      shell: bash
+      env:
+        BRANCH: ${{ github.head_ref || (github.ref_type == 'branch' && github.ref_name) || '' }}
+        TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+        RELEASE_BRANCHES: ${{ inputs.release-branches }}
+        TAG_PREFIX: ${{ inputs.tag-prefix }}
+      run: "$GITHUB_ACTION_PATH/../scripts/compute-version.sh"
+    - id: release
+      if: inputs.mode == 'release'
+      shell: bash
+      env:
+        SOURCE_BRANCH: ${{ inputs.source-branch }}
+        RELEASE_TYPE: ${{ inputs.release-type }}
+        VERSION_BUMP: ${{ inputs.version-bump }}
+        EXPECTED_VERSION: ${{ inputs.expected-version }}
+        REMOTE: ${{ inputs.remote }}
+        TAG_PREFIX: ${{ inputs.tag-prefix }}
+      run: "$GITHUB_ACTION_PATH/../scripts/release-version.sh"

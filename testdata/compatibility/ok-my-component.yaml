@@ -1,0 +1,65 @@
+providesApis:
+  - api: my-component/status-api
+    versions: ["1.0.0"]
+    reason: Status of the component, read by the administration pages.
+  - api: my-component/webhook
+    versions: ["1.0.0"]
+    reason: Change notifications endpoint.
+  - api: my-component/admin-api
+    versions: ["1.0.0"]
+    reason: Administration routes on the admin port.
+  - api: my-component/operations
+    versions: ["1.0.0"]
+    reason: Probes and metrics.
+
+consumesApis:
+  - api: wire-server/admin-api
+    versions: "^0"
+    class: mandatory
+    reason: Backend administration routes for users, teams and features.
+  - api: wire-server/team-events
+    versions: "^0"
+    class: mandatory
+    reason: Team events published by the backend on SQS.
+
+dependsOn:
+  - component: wire-server
+    range: ">=1.0.0"
+    class: mandatory
+    reason: Backend API and team events.
+  - resource: sqs
+    range: "*"
+    class: mandatory
+    reason: Team events FIFO queue.
+  - resource: s3
+    range: "*"
+    class: mandatory
+    reason: State and export files.
+  - resource: ses
+    range: "*"
+    class: optional
+    reason: Failure notification emails, alternative to smtp.
+  - resource: smtp
+    range: "*"
+    class: optional
+    reason: Failure notification emails, alternative to ses.
+  - resource: database
+    range: "*"
+    class: mandatory
+    reason: Persistent state.
+  - resource: object-storage-backup
+    range: "*"
+    class: optional
+    reason: Backup of the export files.
+  - platform: kubernetes
+    range: ">=1.29.0"
+  - platform: prometheus-operator
+    range: "*"
+    class: optional
+    reason: ServiceMonitor when metrics.serviceMonitor.enabled.
+  - platform: external-secrets
+    range: "*"
+    class: optional
+    reason: ExternalSecret resources when externalSecret.enabled.
+
+includes: []

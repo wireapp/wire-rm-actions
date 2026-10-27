@@ -1,0 +1,198 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/wireapp/wire-rm-actions/schemas/wire.component-release-v1alpha2.json",
+  "title": "Wire component release declaration, v1alpha2",
+  "description": "What a version changes for an operator upgrading from upgrade_from (ADR-0020 section 4): publication/declaration.json. Every section is mandatory; [] means nothing to declare.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "component",
+    "version",
+    "summary",
+    "upgrade_from",
+    "changes",
+    "migrations",
+    "configuration"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "wire.component-release/v1alpha2"
+    },
+    "component": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+      "description": "The GA version this declaration is for; its pre-releases share it."
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1000
+    },
+    "upgrade_from": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Range spec of the versions that can upgrade directly to this one, in the release manager's upgrade_from grammar."
+    },
+    "changes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "description",
+          "breaking",
+          "links"
+        ],
+        "properties": {
+          "kind": {
+            "enum": [
+              "added",
+              "changed",
+              "deprecated",
+              "removed",
+              "fixed",
+              "security"
+            ]
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Customer-facing; for a breaking change, the action the operator takes; for security, the advisory or CVE and the affected versions."
+          },
+          "breaking": {
+            "type": "boolean"
+          },
+          "links": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^https://"
+            }
+          }
+        }
+      }
+    },
+    "migrations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "automatic",
+          "description",
+          "downtime",
+          "reversible"
+        ],
+        "properties": {
+          "kind": {
+            "enum": [
+              "schema",
+              "data",
+              "manual"
+            ]
+          },
+          "automatic": {
+            "type": "boolean"
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1
+          },
+          "order": {
+            "type": "string",
+            "description": "Ordering relative to other steps (e.g. 'before rollout')."
+          },
+          "downtime": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Expected downtime, 'none' when none."
+          },
+          "reversible": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "configuration": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "key",
+          "change",
+          "required",
+          "description"
+        ],
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Helm value path or environment variable name."
+          },
+          "change": {
+            "enum": [
+              "added",
+              "removed",
+              "changed"
+            ]
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "default": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Why it changed and what an operator should do; mandatory."
+          }
+        }
+      }
+    },
+    "support": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "releaseCycle",
+        "releaseDate",
+        "lts",
+        "eoas",
+        "eol"
+      ],
+      "description": "On X.Y.0 only, endoflife.date fields (ADR-0022).",
+      "properties": {
+        "releaseCycle": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+$"
+        },
+        "releaseDate": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+        },
+        "lts": {
+          "type": "boolean"
+        },
+        "eoas": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+        },
+        "eol": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,92 @@
+name: Wire declare version
+description: >-
+  Declare a built version (dev build or release) to the staging and prod
+  release managers (POST /api/v1/versions, source chart-release). A release
+  manager whose URL is unset or empty is skipped with a warning; a failed
+  declaration warns, and fails the step only when required is true.
+inputs:
+  rm-staging-url:
+    description: Staging release manager base URL (e.g. secrets.RM_STAGING_URL, masked in the log); empty skips it with a warning.
+    default: ""
+  rm-staging-token:
+    description: Ingest token of the staging release manager, bound to the component.
+    default: ""
+  rm-prod-url:
+    description: Prod release manager base URL (e.g. secrets.RM_PROD_URL, masked in the log); empty skips it with a warning.
+    default: ""
+  rm-prod-token:
+    description: Ingest token of the prod release manager, bound to the component.
+    default: ""
+  rm-staging-audience:
+    description: OIDC audience of the staging release manager (e.g. wire-release-manager-staging). When set and rm-staging-token is empty, the step sends a GitHub Actions OIDC token for it instead of an ingest token; the job needs permissions id-token write.
+    default: ""
+  rm-prod-audience:
+    description: OIDC audience of the prod release manager (e.g. wire-release-manager-prod). Same rules as rm-staging-audience.
+    default: ""
+  component:
+    description: Release manager component id.
+    required: true
+  version:
+    description: The version.
+    required: true
+  kind:
+    description: dev, ga or prerelease.
+    default: dev
+  repository:
+    description: oci://... repository of the artifact.
+    default: ""
+  digest:
+    description: sha256 digest of the artifact.
+    default: ""
+  release-url:
+    description: The component's release page, for GA and pre-release builds.
+    default: ""
+  released-at:
+    description: Release date YYYY-MM-DD, for GA and pre-release builds (write-once).
+    default: ""
+  release-note-title:
+    description: Release note title (pipeline zone), e.g. vX.Y.Z.
+    default: ""
+  release-note-description:
+    description: Release note body (markdown), e.g. the GitHub release body.
+    default: ""
+  meta:
+    description: Extra version tags, one key=value per line.
+    default: ""
+  release-declaration-file:
+    description: Path of the release declaration (JSON object, wire.component-release/v1alpha2), sent as release_declaration; empty sends none.
+    default: ""
+  release-manifest-file:
+    description: Path of the release manifest (JSON object, wire.component-release-manifest/v1alpha1), sent as manifest; empty sends none.
+    default: ""
+  required:
+    description: Fail the step when a declaration fails (token missing, refused, unreachable).
+    default: "false"
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        RM_STAGING_URL: ${{ inputs.rm-staging-url }}
+        RM_STAGING_TOKEN: ${{ inputs.rm-staging-token }}
+        RM_PROD_URL: ${{ inputs.rm-prod-url }}
+        RM_PROD_TOKEN: ${{ inputs.rm-prod-token }}
+        RM_STAGING_AUDIENCE: ${{ inputs.rm-staging-audience }}
+        RM_PROD_AUDIENCE: ${{ inputs.rm-prod-audience }}
+        COMPONENT: ${{ inputs.component }}
+        VERSION: ${{ inputs.version }}
+        KIND: ${{ inputs.kind }}
+        REPOSITORY: ${{ inputs.repository }}
+        DIGEST: ${{ inputs.digest }}
+        RELEASE_URL: ${{ inputs.release-url }}
+        RELEASED_AT: ${{ inputs.released-at }}
+        NOTE_TITLE: ${{ inputs.release-note-title }}
+        NOTE_DESCRIPTION: ${{ inputs.release-note-description }}
+        META: ${{ inputs.meta }}
+        DECLARATION_FILE: ${{ inputs.release-declaration-file }}
+        MANIFEST_FILE: ${{ inputs.release-manifest-file }}
+        REQUIRED: ${{ inputs.required }}
+        COMMIT: ${{ github.sha }}
+        BRANCH: ${{ github.head_ref || github.ref_name }}
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      run: "$GITHUB_ACTION_PATH/../scripts/notify-rm.sh"

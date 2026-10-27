@@ -1,0 +1,25 @@
+{
+  "schemaVersion": "wire.component-release/v1alpha2",
+  "component": "my-component",
+  "version": "4.24.3",
+  "summary": "A migration kind and a configuration change outside their enums.",
+  "upgrade_from": ">=4.23.0",
+  "changes": [],
+  "migrations": [
+    {
+      "kind": "sql",
+      "automatic": true,
+      "description": "Adds a table.",
+      "downtime": "none",
+      "reversible": true
+    }
+  ],
+  "configuration": [
+    {
+      "key": "config.X",
+      "change": "tweaked",
+      "required": false,
+      "description": "Tweaked."
+    }
+  ]
+}

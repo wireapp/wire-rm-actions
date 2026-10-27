@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "wire.component-release/v1",
+  "component": "my-component",
+  "version": "4.24.3",
+  "summary": "An unknown schema version.",
+  "upgrade_from": ">=4.23.0",
+  "changes": [],
+  "migrations": [],
+  "configuration": []
+}

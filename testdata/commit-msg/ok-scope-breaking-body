@@ -1,0 +1,3 @@
+fix(notify-rm)!: refuse a non-https release manager URL
+
+A plain http:// URL would send the ingest token in clear text.

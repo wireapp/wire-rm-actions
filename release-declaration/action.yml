@@ -1,0 +1,25 @@
+name: Wire release declaration
+description: >-
+  Validate a release declaration (ADR-0020 section 4,
+  wire.component-release/v1alpha2)
+  against the schema vendored in this repository: every error is printed, an invalid document fails the step.
+  When component or version is given, the document's field must equal it.
+inputs:
+  file:
+    description: Path of the release declaration (JSON).
+    required: true
+  component:
+    description: Release manager component id the document must declare; empty skips the check.
+    default: ""
+  version:
+    description: Version the document must declare; empty skips the check.
+    default: ""
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        FILE: ${{ inputs.file }}
+        COMPONENT: ${{ inputs.component }}
+        VERSION: ${{ inputs.version }}
+      run: "$GITHUB_ACTION_PATH/../scripts/release-declaration.sh"

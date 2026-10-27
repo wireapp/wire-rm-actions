@@ -1,0 +1,9 @@
+provides:
+  - interface: my-component/status-api
+    supported: "1"
+requires:
+  - interface: wire-server/admin-api
+    range: "1"
+    class: mandatory
+  - capability: sqs
+    class: mandatory
