@@ -47,7 +47,7 @@ This repository releases itself the way it asks components to
 commit and its GitHub Release.
 
 1. A release pull request on `dev`: `make release-prep VERSION=vX.Y.Z` points
-   `dev-build.yml` at `@vX.Y.Z` (the exact tag: `vX.Y.Z-rc.N` for a
+   `dev-build.yml` and the templates at `@vX.Y.Z` (the exact tag: `vX.Y.Z-rc.N` for a
    pre-release, then again for the GA); `publication/release-note.md` and
    `publication/declaration.json` describe X.Y.Z (`make ci` validates them).
 2. Once merged, run the `Prepare release` workflow on `dev` with the type and

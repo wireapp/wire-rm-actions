@@ -1,0 +1,80 @@
+name: Wire wire-builds bump
+description: >-
+  Points the wire-builds entry of a chart at a published version (version,
+  repo, meta) and bumps the build version, in one commit. Retry-safe: an
+  entry already at the version is a no-op, a commit that raced another one is
+  read again and applied again, and nothing but the two fields may change.
+inputs:
+  chart:
+    description: The helmCharts key of the chart in build.json.
+    required: true
+  version:
+    description: The chart version.
+    required: true
+  chart-repo:
+    description: The chart repository URL; empty keeps the current one (required for a new entry).
+    default: ""
+  app-version:
+    description: meta.appVersion; empty is the version, "-" leaves it out.
+    default: ""
+  commit:
+    description: meta.commit, the full sha the version was built from; empty leaves it out.
+    default: ""
+  commit-url:
+    description: meta.commitURL; empty is <server>/<source-repository>/commit/<commit>.
+    default: ""
+  source-repository:
+    description: owner/name of the component, for the default commit-url.
+    default: ${{ github.repository }}
+  wire-builds-repository:
+    description: owner/name of the wire-builds repository.
+    default: wireapp/wire-builds
+  branch:
+    description: Branch of wire-builds to commit to.
+    default: dev
+  file:
+    description: Path of the build file in wire-builds.
+    default: build.json
+  message:
+    description: Commit message; empty is "Bump <chart> to <version>".
+    default: ""
+  bump-build-version:
+    description: true bumps the pre-release of the top-level version, false leaves it.
+    default: "true"
+  attempts:
+    description: How many times the commit is tried when another commit landed in between.
+    default: "5"
+  token:
+    description: "Token with contents: write on the wire-builds repository (never the job's own token)."
+    required: true
+outputs:
+  status:
+    description: bumped, or unchanged when the entry was already at the version.
+    value: ${{ steps.bump.outputs.status }}
+  build-version:
+    description: The top-level version of build.json after the step.
+    value: ${{ steps.bump.outputs.build-version }}
+  commit:
+    description: The wire-builds commit, empty when unchanged.
+    value: ${{ steps.bump.outputs.commit }}
+runs:
+  using: composite
+  steps:
+    - id: bump
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        CHART: ${{ inputs.chart }}
+        VERSION: ${{ inputs.version }}
+        CHART_REPO: ${{ inputs.chart-repo }}
+        APP_VERSION: ${{ inputs.app-version }}
+        COMMIT: ${{ inputs.commit }}
+        COMMIT_URL: ${{ inputs.commit-url }}
+        SOURCE_REPOSITORY: ${{ inputs.source-repository }}
+        WIRE_BUILDS_REPOSITORY: ${{ inputs.wire-builds-repository }}
+        BRANCH: ${{ inputs.branch }}
+        FILE: ${{ inputs.file }}
+        MESSAGE: ${{ inputs.message }}
+        BUMP_BUILD_VERSION: ${{ inputs.bump-build-version }}
+        ATTEMPTS: ${{ inputs.attempts }}
+      run: "$GITHUB_ACTION_PATH/../scripts/wire-builds-bump.sh"

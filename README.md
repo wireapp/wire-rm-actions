@@ -29,6 +29,7 @@ what was built.
 | 🗂️ | [**draft-release**](draft-release/README.md) | Creates the draft GitHub Release of a candidate with its assets, resolves and downloads it at publication, and publishes it once the artifacts are out (the tag is born there). |
 | 🪣 | [**publish-chart-s3**](publish-chart-s3/README.md) | Interim: pushes a packaged chart to an S3 Helm repository (helm-s3) for the deployments that still read one, never overwriting a published version. |
 | 🧳 | [**publish-extra-chart**](publish-extra-chart/README.md) | For extra charts that repackage an upstream release: packages the chart with its own version and appVersion and pushes it like publish-chart, never overwriting a published version. |
+| 🔁 | [**wire-builds-bump**](wire-builds-bump/README.md) | Points the wire-builds entry of a chart at a published version and bumps the build version, in one commit; a no-op when already there, retried when another commit lands in between. |
 
 Each action has its own page: definition, inputs and outputs, a copy-paste
 example, and the reasons behind its design.
@@ -160,6 +161,14 @@ jobs:
 No secrets: the job's OIDC token is exchanged for a one-hour quay robot token
 and sent to the release managers. Outputs: `version` and `digest`. A tag build
 publishes to the `stable` channel, any other build to `dev`.
+
+## Templates
+
+[`templates/`](templates/README.md) holds workflows a component copies:
+`repair-publication.yml` replays the steps after the tag of a published
+release (declaration, S3 chart, wire-builds) from its assets. A publication
+rerun resumes on its own: [draft-release](draft-release/README.md) accepts a
+release an earlier run published, unchanged.
 
 ## Pin a release
 
