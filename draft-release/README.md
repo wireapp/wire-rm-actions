@@ -47,8 +47,8 @@ resume`, the default). `resolve` accepts the release an earlier run
 published, when its tag exists at the commit it targets (and at
 `expected-commit`), and downloads its assets as for a draft. `publish` then
 writes nothing: each `replace-assets` file must match the published asset,
-the manifest without its `publication` block (a rerun completes it again
-with a new date), any other file byte for byte. A difference fails the step.
+the manifest without its `publication` block (a manifest completed by
+another tool may carry another date), any other file byte for byte. A difference fails the step.
 So a publication that broke after the tag (declaration, S3 chart, wire-builds)
 is replayed by running the publication again, and every step before the tag
 is already idempotent. `if-published: fail` keeps the strict behaviour.

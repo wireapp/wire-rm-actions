@@ -352,7 +352,7 @@ replace_assets() {
 }
 
 # same_asset <assets JSON> <name> <path>: the published asset holds what <path> holds; the
-# manifest is compared without its `publication` block, which a rerun writes again.
+# manifest is compared without its `publication` block, which only records the run.
 same_asset() {
   local assets="$1" name="$2" path="$3" dir
   dir="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/draft-release-check.XXXXXX")"

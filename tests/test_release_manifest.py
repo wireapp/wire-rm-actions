@@ -499,6 +499,21 @@ def test_complete_in_place_and_again(written: Path):
     assert json.loads((written / "rc.json").read_text()) == doc
 
 
+def test_complete_keeps_the_first_publication(written: Path):
+    digests = json.dumps({"oci://quay.io/wire/charts/stable/example:1.41.4-rc.1": CHART_DIGEST})
+    base = {"MODE": "complete", "MANIFEST": "rc.json", "DIGESTS_JSON": digests}
+    assert _run(written, **base, PUBLISHED_AT="2026-10-11T09:30:00Z", RUN_URL="https://x/1").returncode == 0
+    first = (written / "rc.json").read_text()
+    again = _run(written, **base, PUBLISHED_AT="2026-10-12T08:00:00Z", RUN_URL="https://x/2", OUT="again.json")
+    assert again.returncode == 0, again.stderr
+    assert "already completed by https://x/1" in again.stdout
+    assert (written / "again.json").read_text() == first
+    other = json.dumps({"oci://quay.io/wire/charts/stable/example:1.41.4-rc.1": "sha256:" + "0" * 64})
+    result = _run(written, **{**base, "DIGESTS_JSON": other}, RUN_URL="https://x/3")
+    assert result.returncode == 1
+    assert "was completed with other digests" in result.stderr
+
+
 def test_complete_to_another_file(written: Path):
     result = _run(written, MODE="complete", MANIFEST="rc.json", OUT="completed.json", RUN_URL="https://x/1")
     assert result.returncode == 0, result.stderr
