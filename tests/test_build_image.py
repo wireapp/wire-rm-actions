@@ -117,10 +117,10 @@ def test_new_tag_is_built_and_pushed(env):
         f"org.opencontainers.image.created={CREATED}",
     ]
     assert _pairs(build, "--annotation") == [
-        f"manifest:org.opencontainers.image.version={VERSION}",
-        f"manifest:org.opencontainers.image.revision={SHA}",
-        "manifest:org.opencontainers.image.source=https://github.com/wireapp/my-component",
-        f"manifest:org.opencontainers.image.created={CREATED}",
+        f"index,manifest:org.opencontainers.image.version={VERSION}",
+        f"index,manifest:org.opencontainers.image.revision={SHA}",
+        "index,manifest:org.opencontainers.image.source=https://github.com/wireapp/my-component",
+        f"index,manifest:org.opencontainers.image.created={CREATED}",
     ]
     assert _outputs(env) == {
         "image": IMAGE,
@@ -152,11 +152,18 @@ def test_tag_input_wins_over_version(env):
 
 
 def test_multi_platform_annotates_the_index(env):
-    result = _run(env, PLATFORMS="linux/amd64,linux/arm64")
+    result = _run(env, PLATFORMS="linux/amd64,linux/arm64", PROVENANCE="false", SBOM="false")
     assert result.returncode == 0, result.stderr
     build = _build(env)
     assert _pairs(build, "--platform") == ["linux/amd64,linux/arm64"]
     assert all(a.startswith("index,manifest:") for a in _pairs(build, "--annotation"))
+
+
+def test_single_platform_without_attestations_annotates_the_manifest_only(env):
+    result = _run(env, PROVENANCE="false", SBOM="false")
+    assert result.returncode == 0, result.stderr
+    build = _build(env)
+    assert all(a.startswith("manifest:") for a in _pairs(build, "--annotation"))
 
 
 def test_build_args_contexts_and_target(env):
@@ -187,12 +194,20 @@ def test_provenance_mode_min(env):
     assert {"--provenance=mode=min", "--sbom=true"} <= set(_build(env))
 
 
-def test_expires_after_is_a_label_only(env):
+def test_expires_after_is_a_label_and_an_index_annotation(env):
     result = _run(env, EXPIRES_AFTER="90d")
     assert result.returncode == 0, result.stderr
     build = _build(env)
     assert "quay.expires-after=90d" in _pairs(build, "--label")
-    assert not any("expires" in a for a in _pairs(build, "--annotation"))
+    assert "index,manifest:quay.expires-after=90d" in _pairs(build, "--annotation")
+
+
+def test_expires_after_without_an_index_is_a_manifest_annotation(env):
+    result = _run(env, EXPIRES_AFTER="90d", PROVENANCE="false", SBOM="false")
+    assert result.returncode == 0, result.stderr
+    build = _build(env)
+    assert "quay.expires-after=90d" in _pairs(build, "--label")
+    assert "manifest:quay.expires-after=90d" in _pairs(build, "--annotation")
 
 
 def test_created_defaults_to_now(env):

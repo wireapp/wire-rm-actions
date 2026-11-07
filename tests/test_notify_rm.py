@@ -154,6 +154,38 @@ def test_response_body_shown_on_failure_only_without_workflow_commands(rms):
     assert "prod-body" not in result.stdout
 
 
+@pytest.mark.parametrize("status", [401, 403])
+def test_a_refused_ingest_token_says_what_to_fix(rms, status):
+    staging, prod = rms
+    staging.status = status
+    staging.body = b'{"message": "token not accepted: unknown token"}'
+    result = _run(
+        RM_STAGING_URL=staging.url,
+        RM_STAGING_TOKEN="t",
+        RM_PROD_URL=prod.url,
+        RM_PROD_TOKEN="t",
+        GITHUB_REPOSITORY="wireapp/wire-account",
+        GITHUB_REPOSITORY_ID="12345",
+    )
+    assert result.returncode == 0, result.stderr
+    warning = next(line for line in result.stdout.splitlines() if line.startswith("::warning::release manager staging"))
+    assert f"refused the ingest token of wireapp/wire-account (id 12345) (HTTP {status})" in warning
+    assert "not bound to the component my-component" in warning
+    assert "Issue a new ingest token" in warning
+    assert "OIDC" not in warning
+    assert "4.24.3-20261005135125.gabcdef0 is not declared there" in warning
+    assert "token not accepted: unknown token" in result.stdout
+    assert len(prod.calls) == 1
+
+
+def test_a_refused_credential_fails_when_required(rms):
+    staging, _ = rms
+    staging.status = 403
+    result = _run(RM_STAGING_URL=staging.url, RM_STAGING_TOKEN="t", REQUIRED="true")
+    assert result.returncode == 1
+    assert "declaration failed on: staging" in result.stderr
+
+
 @pytest.mark.parametrize("status", [500, 302])
 def test_failure_fails_when_required(rms, status):
     staging, prod = rms
@@ -631,6 +663,49 @@ def test_the_oidc_token_never_goes_to_a_non_https_release_manager(idp):
     assert result.returncode == 0, result.stderr
     assert idp.calls == []
     assert "not an https:// URL" in result.stdout
+
+
+@pytest.mark.parametrize("status", [401, 403])
+def test_a_refused_oidc_token_names_the_repository_and_the_binding(rms, idp, status):
+    # The wire-account case: a green build, nothing in the release manager, because the
+    # repository was not bound in oidc.repositories. The warning must say so.
+    staging, _ = rms
+    staging.status = status
+    staging.body = b'{"message": "token not accepted: unknown-repository"}'
+    result = _run(
+        RM_STAGING_URL=staging.url,
+        RM_STAGING_AUDIENCE="wire-release-manager-staging",
+        GITHUB_REPOSITORY="wireapp/wire-account",
+        GITHUB_REPOSITORY_ID="12345",
+        **_oidc_env(idp),
+    )
+    assert result.returncode == 0, result.stderr
+    assert len(staging.calls) == 1
+    warning = next(line for line in result.stdout.splitlines() if line.startswith("::warning::release manager staging"))
+    assert f"refused the OIDC token of wireapp/wire-account (id 12345) (HTTP {status})" in warning
+    assert "does not know this repository, or does not let it declare the component my-component" in warning
+    assert "oidc.repositories" in warning and "config/components.yaml" in warning
+    assert "4.24.3-20261005135125.gabcdef0 is not declared there" in warning
+    assert "ingest token" not in warning
+    assert JWT not in warning
+    assert "token not accepted: unknown-repository" in result.stdout
+
+
+def test_a_refused_oidc_token_without_runner_variables(rms, idp):
+    staging, _ = rms
+    staging.status = 403
+    result = _run(RM_STAGING_URL=staging.url, RM_STAGING_AUDIENCE="aud", **_oidc_env(idp))
+    assert result.returncode == 0, result.stderr
+    assert "refused the OIDC token of this repository (HTTP 403)" in result.stdout
+    assert "(id " not in result.stdout
+
+
+def test_a_refused_oidc_token_fails_when_required(rms, idp):
+    staging, _ = rms
+    staging.status = 403
+    result = _run(RM_STAGING_URL=staging.url, RM_STAGING_AUDIENCE="aud", REQUIRED="true", **_oidc_env(idp))
+    assert result.returncode == 1
+    assert "declaration failed on: staging" in result.stderr
 
 
 def test_without_token_or_audience_nothing_changes(rms, idp):

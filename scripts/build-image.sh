@@ -86,10 +86,10 @@ done <<<"${BUILD_CONTEXTS:-}"
 [[ -n ${TARGET:-} ]] && args+=(--target "$TARGET")
 
 # OCI provenance (ADR-0020 rule 8) as labels (docker inspect) and annotations
-# (registry UIs, crane): on the manifest, and on the index of a multi-platform
-# image (a single-platform push has no index to annotate).
+# (registry UIs, crane): on the manifest, and on the index that buildx pushes
+# for a multi-platform image or when it attaches provenance or SBOM attestations.
 levels=manifest
-[[ $platforms == *,* ]] && levels=index,manifest
+[[ $platforms == *,* || $provenance != false || $sbom != false ]] && levels=index,manifest
 oci=("org.opencontainers.image.version=$VERSION")
 [[ -n $revision ]] && oci+=("org.opencontainers.image.revision=$revision")
 if [[ -n ${GITHUB_REPOSITORY:-} ]]; then
@@ -111,8 +111,11 @@ done <<<"${LABELS:-}"
 for kv in "${oci[@]}"; do
   args+=(--label "$kv" --annotation "${levels}:$kv")
 done
-# A label only: Quay reads it from the image config.
-[[ -n $expires_after ]] && args+=(--label "quay.expires-after=$expires_after")
+# Quay reads the expiry from the image config label of a plain manifest, and
+# only from the index annotation when the push is an index.
+if [[ -n $expires_after ]]; then
+  args+=(--label "quay.expires-after=$expires_after" --annotation "${levels}:quay.expires-after=$expires_after")
+fi
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT

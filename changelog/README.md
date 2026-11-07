@@ -78,8 +78,11 @@ with commit and pull request links. The output fits a `CHANGELOG.md` or, with
   Chores, Continuous Integration, Documentation Changes, New Features, Bug
   Fixes, Other Changes, Performance Improvements, Refactors, Reverts, Code
   Style Changes, Tests. An unknown type goes to Other Changes.
-- A subject ending in `[breaking]` (or a flag list holding `breaking`) goes to
-  Breaking Changes, whatever its type.
+- A subject ending in `[breaking]` (or a flag list holding `breaking`), or
+  whose type carries the `!` of a conventional breaking change (`feat!: …`,
+  `fix(api)!: …`), goes to Breaking Changes, whatever its type. The `!` is the
+  one departure from generate-changelog, which lists `feat!: …` under Other
+  Changes and leaves `feat(api)!: …` out.
 - Commits are listed newest first. `#123` becomes a pull request link and each
   entry ends with its commit link, when `repo-url` is set.
 - With `merge-commits: pull-request`, a repository that merges with merge

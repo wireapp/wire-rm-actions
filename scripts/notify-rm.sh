@@ -39,6 +39,12 @@
 #   REQUIRED=true                        a failed declaration fails the step;
 #                                        otherwise it only warns, so a release
 #                                        manager outage never breaks a build
+#
+# A 401 or 403 is a refused credential, not an outage, and the warning says
+# what to fix: in OIDC mode the release manager does not know the repository
+# ($GITHUB_REPOSITORY, id $GITHUB_REPOSITORY_ID) or does not let it declare
+# the component (oidc.repositories in its config/components.yaml); with an
+# ingest token, the token is expired, revoked or bound to another component.
 set -euo pipefail
 export LC_ALL=C
 # shellcheck source=scripts/lib.sh
@@ -162,7 +168,7 @@ request_oidc_token() {
 
 # Declare to one release manager; returns 1 when that declaration failed.
 declare_to() {
-  local name=$1 var=$2 url=$3 token=$4 audience=${5:-} code hint stop curl_status host
+  local name=$1 var=$2 url=$3 token=$4 audience=${5:-} code hint stop curl_status host credential=token repository
   if [[ -z $url ]]; then
     echo "::warning::release manager $name: $var is not set or empty, $COMPONENT $VERSION is not declared there"
     summary "- release manager $name: skipped, $var not set"
@@ -192,6 +198,7 @@ declare_to() {
   if [[ -z $token && -n ${audience//[[:space:]]/} ]]; then
     request_oidc_token "$name" "$audience" || return 1
     token=$oidc_value
+    credential=oidc
   fi
   if [[ -z $token ]]; then
     echo "::warning::release manager $name (rm-$name): no ingest token, $COMPONENT $VERSION is not declared there"
@@ -230,6 +237,21 @@ declare_to() {
     hint=""
     [[ $code == 3?? ]] && hint=" (a 3xx means an interactive SSO in front of the API)"
     [[ $code == 000 ]] && hint=" (unreachable)"
+    if [[ $code == 401 || $code == 403 ]]; then
+      # A refused credential is a configuration error, never an outage: the
+      # warning names the repository and the fix. The runner sets
+      # GITHUB_REPOSITORY and GITHUB_REPOSITORY_ID, neither is a secret.
+      repository="${GITHUB_REPOSITORY:-this repository}"
+      [[ -z ${GITHUB_REPOSITORY_ID:-} ]] || repository="$repository (id ${GITHUB_REPOSITORY_ID})"
+      if [[ $credential == oidc ]]; then
+        echo "::warning::release manager $name (rm-$name) refused the OIDC token of $repository (HTTP $code): the release manager does not know this repository, or does not let it declare the component $COMPONENT. Add the repository (name, id, components) to oidc.repositories in its configuration (config/components.yaml) and redeploy it; until then $COMPONENT $VERSION is not declared there"
+        summary "- release manager $name: not declared, HTTP $code, the OIDC token of $repository was refused (repository not bound to $COMPONENT in the release manager configuration)"
+      else
+        echo "::warning::release manager $name (rm-$name) refused the ingest token of $repository (HTTP $code): the token is expired, revoked, or not bound to the component $COMPONENT. Issue a new ingest token for $COMPONENT in the release manager and update the secret; until then $COMPONENT $VERSION is not declared there"
+        summary "- release manager $name: not declared, HTTP $code, the ingest token was refused (expired, revoked or bound to another component)"
+      fi
+      return 1
+    fi
     echo "::warning::release manager $name (rm-$name) answered $code$hint: $COMPONENT $VERSION not declared there"
     summary "- release manager $name: not declared, HTTP $code$hint"
     return 1
