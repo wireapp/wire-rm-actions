@@ -1,7 +1,7 @@
 # Python tools of make ci. Regenerate requirements-ci.txt after a change:
 #   pip-compile --allow-unsafe --generate-hashes --no-emit-index-url --strip-extras requirements-ci.in
-pytest==8.4.2
-zizmor==1.30.1
+pytest==9.1.1
+zizmor==1.31.1
 jsonschema==4.26.0
 # referencing (via jsonschema) needs it below Python 3.13; listed so that a file compiled
 # with a newer Python still installs on the 3.12 of the runners.
