@@ -16,20 +16,28 @@
 # The tag state: absent, or present at the target commit (a publication completed earlier);
 # present at another commit fails.
 #
+# A rerun after the publication (IF_PUBLISHED=resume, the default): resolve and publish accept
+# the release once it is published, provided its tag exists at the commit it targets (and at
+# EXPECTED_COMMIT when given). resolve downloads its assets as for a draft; publish changes
+# nothing, after checking each REPLACE_ASSETS file against the published asset (the manifest
+# without its `publication` block, any other file byte for byte), and fails on a difference.
+# The steps after the publication can then run again. IF_PUBLISHED=fail refuses a published
+# release, as before.
+#
 # Inputs (environment): GH_TOKEN, REPO (owner/name, default $GITHUB_REPOSITORY), MODE,
 # VERSION, TAG_PREFIX (default v);
 # create: TARGET (full commit sha), TITLE (default the tag), BODY_FILE, PRERELEASE (auto: the
 #   version has a pre-release suffix), ASSETS (paths, one per line), CREATE_ATTEMPTS (5),
 #   CREATE_DELAY (3 seconds);
-# resolve, publish: RELEASE_ID, EXPECTED_COMMIT;
+# resolve, publish: RELEASE_ID, EXPECTED_COMMIT, IF_PUBLISHED (resume, fail);
 # resolve: ASSET_DIR (default $RUNNER_TEMP/release-assets), DOWNLOAD (none, manifest,
 #   manifest-files, all), MANIFEST_NAME (release-manifest.json), ASSETS (more asset names);
 # publish: REPLACE_ASSETS (<path> or <name>=<path>, one per line), MAKE_LATEST (auto, true,
 #   false, legacy), SOURCE_REF, LATEST_BRANCHES (regex, default ^dev$).
 #
 # Outputs (stdout and $GITHUB_OUTPUT): id, tag, url; create: published-url; resolve:
-# target-commitish, prerelease, tag-exists, asset-dir, manifest, body-file; publish:
-# make-latest.
+# target-commitish, prerelease, tag-exists, asset-dir, manifest, body-file; resolve, publish:
+# already-published; publish: make-latest (unchanged on a published release).
 set -euo pipefail
 export LC_ALL=C
 # shellcheck source=scripts/lib.sh
@@ -42,6 +50,7 @@ TAG_PREFIX="${TAG_PREFIX-v}"
 RELEASE_ID="${RELEASE_ID:-}"
 EXPECTED_COMMIT="${EXPECTED_COMMIT:-}"
 MANIFEST_NAME="${MANIFEST_NAME:-release-manifest.json}"
+IF_PUBLISHED="${IF_PUBLISHED:-resume}"
 SERVER_URL="${GITHUB_SERVER_URL:-https://github.com}"
 
 # A release asset name: one plain file name, never a path.
@@ -91,23 +100,40 @@ check_tag_state() {
   fi
 }
 
-# The draft of the tag, checked: prints the release JSON.
+# The draft of the tag, or with IF_PUBLISHED=resume the release published from it, checked:
+# prints the release JSON.
 resolve_draft() {
-  local tag="$1" id="$RELEASE_ID" matches count data
+  local tag="$1" id="$RELEASE_ID" matches drafts published data commit
   if [[ -z "$id" ]]; then
     # GitHub permits several drafts sharing a tag_name: exactly one must match.
     matches="$(releases_for_tag "$tag")" || die "could not list the releases of ${REPO}"
-    count="$(jq '[.[] | select(.draft == true)] | length' <<<"$matches")"
-    [[ "$count" -eq 1 ]] || die "expected exactly one draft release for tag ${tag}, found ${count}"
-    id="$(jq -r '[.[] | select(.draft == true)][0].id' <<<"$matches")"
+    drafts="$(jq '[.[] | select(.draft == true)] | length' <<<"$matches")"
+    published="$(jq '[.[] | select(.draft != true)] | length' <<<"$matches")"
+    if [[ "$drafts" -eq 1 && "$published" -eq 0 ]]; then
+      id="$(jq -r '[.[] | select(.draft == true)][0].id' <<<"$matches")"
+    elif [[ "$drafts" -eq 0 && "$published" -eq 1 && "$IF_PUBLISHED" == resume ]]; then
+      id="$(jq -r '[.[] | select(.draft != true)][0].id' <<<"$matches")"
+    elif [[ "$drafts" -gt 0 && "$published" -gt 0 ]]; then
+      die "tag ${tag} has a published release and ${drafts} draft(s): refusing to guess"
+    else
+      die "expected exactly one draft release for tag ${tag}, found ${drafts}"
+    fi
   fi
   data="$(gh api "repos/${REPO}/releases/${id}")" || die "could not read release ${id} of ${REPO}"
-  [[ "$(jq -r '.draft' <<<"$data")" == true ]] \
-    || die "release ${id} (tag $(jq -r '.tag_name' <<<"$data")) is not a draft: refusing to publish"
+  if [[ "$(jq -r '.draft' <<<"$data")" != true && "$IF_PUBLISHED" != resume ]]; then
+    die "release ${id} (tag $(jq -r '.tag_name' <<<"$data")) is not a draft: refusing to publish"
+  fi
   [[ "$(jq -r '.tag_name' <<<"$data")" == "$tag" ]] \
     || die "release ${id} has tag_name '$(jq -r '.tag_name' <<<"$data")', expected '${tag}'"
   if [[ -n "$EXPECTED_COMMIT" && "$(jq -r '.target_commitish' <<<"$data")" != "$EXPECTED_COMMIT" ]]; then
     die "release ${id} targets '$(jq -r '.target_commitish' <<<"$data")', expected '${EXPECTED_COMMIT}'"
+  fi
+  if [[ "$(jq -r '.draft' <<<"$data")" != true ]]; then
+    # Published: the tag must be there, at the commit the release targets.
+    commit="$(jq -r '.target_commitish' <<<"$data")"
+    [[ "$(check_tag_state "$tag" "$commit")" == true ]] \
+      || die "release ${id} is published but its tag ${tag} does not exist: refusing to resume"
+    echo "Release ${id} (tag ${tag}) is already published at ${commit}: resuming after the publication." >&2
   fi
   printf '%s\n' "$data"
 }
@@ -183,7 +209,7 @@ download_asset() {
   local assets="$1" name="$2" dir="$3" id
   plain_name "$name" || die "asset name '${name}' is not a plain file name"
   id="$(jq -r --arg name "$name" '.[] | select(.name == $name) | .id' <<<"$assets")"
-  [[ -n "$id" ]] || die "asset '${name}' not found on the draft release"
+  [[ -n "$id" ]] || die "asset '${name}' not found on the release"
   # A draft asset's browser_download_url 404s: the asset API with an octet-stream Accept.
   gh api -H "Accept: application/octet-stream" "repos/${REPO}/releases/assets/${id}" >"${dir}/${name}" \
     || die "could not download asset '${name}'"
@@ -204,7 +230,7 @@ resolve() {
   data="$(resolve_draft "$tag")"
   id="$(jq -r '.id' <<<"$data")"
   target="$(jq -r '.target_commitish' <<<"$data")"
-  echo "Resolved draft release ${id} (tag ${tag}, target ${target})"
+  echo "Resolved release ${id} (tag ${tag}, target ${target}, draft $(jq -r '.draft' <<<"$data"))"
   tag_exists="$(check_tag_state "$tag" "$target")"
 
   mkdir -p "$dir"
@@ -249,6 +275,7 @@ resolve() {
   emit target-commitish "$target"
   emit prerelease "$(jq -r '.prerelease' <<<"$data")"
   emit tag-exists "$tag_exists"
+  emit already-published "$(jq -r 'if .draft then "false" else "true" end' <<<"$data")"
   emit asset-dir "$dir"
   emit manifest "$manifest"
   emit body-file "$body_file"
@@ -324,9 +351,52 @@ replace_assets() {
   done <<<"${REPLACE_ASSETS:-}"
 }
 
+# same_asset <assets JSON> <name> <path>: the published asset holds what <path> holds; the
+# manifest is compared without its `publication` block, which a rerun writes again.
+same_asset() {
+  local assets="$1" name="$2" path="$3" dir
+  dir="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/draft-release-check.XXXXXX")"
+  jq -e --arg name "$name" 'any(.[]; .name == $name)' <<<"$assets" >/dev/null \
+    || die "asset '${name}' is not on the published release: refusing to resume"
+  download_asset "$assets" "$name" "$dir" >/dev/null
+  if [[ "$name" == "$MANIFEST_NAME" ]]; then
+    diff <(jq -S 'del(.publication)' "${dir}/${name}") <(jq -S 'del(.publication)' "$path") >/dev/null 2>&1
+  else
+    [[ "$(sha256_of "${dir}/${name}")" == "$(sha256_of "$path")" ]]
+  fi
+}
+
+# A rerun after the publication: nothing is written, every replacement must already be there.
+resume_published() {
+  local tag="$1" data="$2" id assets line name path
+  id="$(jq -r '.id' <<<"$data")"
+  assets="$(assets_of "$id")" || die "could not list the assets of release ${id}"
+  while IFS= read -r line; do
+    [[ -n "${line//[[:space:]]/}" ]] || continue
+    if [[ "$line" == *=* ]]; then name="${line%%=*}"; path="${line#*=}"; else path="$line"; name="$(basename "$line")"; fi
+    plain_name "$name" || die "asset name '${name}' is not a plain file name"
+    [[ -f "$path" ]] || die "asset '${path}' not found"
+    same_asset "$assets" "$name" "$path" \
+      || die "release ${tag} is already published with another ${name}: refusing to resume (publish a new version, or fix the release by hand)"
+    echo "Published asset ${name} matches ${path}"
+  done <<<"${REPLACE_ASSETS:-}"
+  echo "Release ${tag} was already published: nothing changed, the next steps run again."
+  summary "### Release already published" "" \
+    "[\`${tag}\`]($(jq -r '.html_url // ""' <<<"$data")) was published by an earlier run: its assets were checked, nothing was changed."
+  emit id "$id"
+  emit tag "$tag"
+  emit url "$(jq -r '.html_url // ""' <<<"$data")"
+  emit already-published true
+  emit make-latest unchanged
+}
+
 publish() {
   local tag="$1" data id target latest url
   data="$(resolve_draft "$tag")"
+  if [[ "$(jq -r '.draft' <<<"$data")" != true ]]; then
+    resume_published "$tag" "$data"
+    return
+  fi
   id="$(jq -r '.id' <<<"$data")"
   target="$(jq -r '.target_commitish' <<<"$data")"
   check_tag_state "$tag" "$target" >/dev/null
@@ -339,6 +409,7 @@ publish() {
   emit id "$id"
   emit tag "$tag"
   emit url "$url"
+  emit already-published false
   emit make-latest "$latest"
 }
 
@@ -349,6 +420,7 @@ main() {
   [[ "$TAG_PREFIX" =~ ^[A-Za-z0-9._/-]*$ ]] || die "tag-prefix '${TAG_PREFIX}' has unexpected characters"
   [[ -z "$RELEASE_ID" || "$RELEASE_ID" =~ ^[0-9]+$ ]] || die "release-id '${RELEASE_ID}' is not numeric"
   [[ -z "$EXPECTED_COMMIT" || "$EXPECTED_COMMIT" =~ ^[0-9a-f]{40}$ ]] || die "expected-commit '${EXPECTED_COMMIT}' is not a full commit sha"
+  [[ "$IF_PUBLISHED" == resume || "$IF_PUBLISHED" == fail ]] || die "if-published must be resume or fail (got: '${IF_PUBLISHED}')"
   tag="${TAG_PREFIX}${VERSION}"
   case "$MODE" in
     create) create "$tag" ;;
