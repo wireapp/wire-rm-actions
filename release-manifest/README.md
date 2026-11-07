@@ -37,7 +37,7 @@ provided interfaces of a version from it.
 |---|---|---|
 | `write` | prepare (release) or dev build | Freezes the manifest; every required field is checked, nothing is written on error. |
 | `verify` | publish, before anything is promoted | Checks the downloaded chart package and documents against their sha256, the version, the commit, the tag and the source branch; with `check-source-branch`, that the commit is still on that branch. |
-| `complete` | publish, after promotion | Appends `publication` (date, run, digests); refuses to touch the frozen part; idempotent. |
+| `complete` | publish, after promotion | Appends `publication` (date, run, digests); refuses to touch the frozen part; idempotent: an already completed manifest with the same digests is kept with its first date and run, other digests fail. |
 
 A dev build (`release-type: dev`) has no tag, no candidate tag and no chart
 file: its image and chart are identified by digest.
