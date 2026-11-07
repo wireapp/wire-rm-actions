@@ -1,0 +1,196 @@
+# Replays the steps that come after the tag for a release that is already published: the
+# declaration to the release managers, the interim S3 chart and the wire-builds bump. Nothing
+# is built, promoted to a new digest or rewritten: every input comes from the assets of the
+# published GitHub Release, which never expire, and is checked against its manifest first.
+#
+# Copy it to .github/workflows/repair-publication.yml of the component, replace my-component,
+# wire+gha_my-component and the chart repositories, and pin every wireapp/wire-rm-actions
+# action at the commit SHA of a release (README, "Pin a release"). Use the concurrency group
+# of the publish-release workflow: a repair never runs next to a publication.
+
+name: Repair publication
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Published version to repair (X.Y.Z or X.Y.Z-<channel>.N, without v)
+        type: string
+        required: true
+      reason:
+        description: Why the publication is repaired (written to the job summary)
+        type: string
+        required: true
+      confirm:
+        description: Type the tag (v<version>) to confirm
+        type: string
+        required: true
+      notify-rm:
+        description: Declare the release to the release managers again
+        type: boolean
+        default: true
+      s3-chart:
+        description: Push the chart to the S3 repository wire-builds reads (interim)
+        type: boolean
+        default: false
+      wire-builds:
+        description: Point the wire-builds entry of the chart at this version
+        type: boolean
+        default: false
+
+permissions: {}
+
+concurrency:
+  group: publish-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    name: Repair
+    # The same approval as a publication: release managers only.
+    environment:
+      name: release-publication
+      url: ${{ github.server_url }}/${{ github.repository }}/releases/tag/v${{ inputs.version }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write # read the release and its drafts (listed to push access only)
+      id-token: write # OIDC token of the run: Quay and the release managers
+    steps:
+      - name: Check the confirmation
+        env:
+          VERSION: ${{ inputs.version }}
+          CONFIRM: ${{ inputs.confirm }}
+          REASON: ${{ inputs.reason }}
+        run: |
+          set -euo pipefail
+          [[ "$CONFIRM" == "v${VERSION}" ]] || { echo "::error::confirm is '${CONFIRM}', expected 'v${VERSION}'"; exit 1; }
+          [[ -n "${REASON//[[:space:]]/}" ]] || { echo "::error::reason is empty"; exit 1; }
+          {
+            echo "## Repair of \`v${VERSION}\`"
+            echo
+            echo "Reason: ${REASON}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Resolve the published release
+        id: release
+        uses: wireapp/wire-rm-actions/draft-release@dev
+        with:
+          mode: resolve
+          version: ${{ inputs.version }}
+          download: manifest-files
+          asset-dir: ${{ runner.temp }}/release
+
+      - name: Refuse a release that is not published
+        if: steps.release.outputs.already-published != 'true'
+        run: |
+          echo "::error::v${VERSION} is still a draft: run the publish-release workflow, not a repair"
+          exit 1
+        env:
+          VERSION: ${{ inputs.version }}
+
+      - name: Verify the assets against the manifest
+        id: manifest
+        uses: wireapp/wire-rm-actions/release-manifest@dev
+        with:
+          mode: verify
+          manifest: ${{ steps.release.outputs.manifest }}
+          asset-dir: ${{ steps.release.outputs.asset-dir }}
+          version: ${{ inputs.version }}
+          source-commit: ${{ steps.release.outputs.target-commitish }}
+
+      - name: Log in to quay.io with the OIDC token of the run
+        id: quay
+        uses: wireapp/wire-rm-actions/quay-login@dev
+        with:
+          robot: wire+gha_my-component
+
+      # Read back what the release points to. Both steps are no-ops on a sound publication
+      # (status present); a release tag at another digest or a chart with another content
+      # fails here, before anything is declared.
+      - name: Check the image release tag
+        id: image
+        uses: wireapp/wire-rm-actions/promote-image@dev
+        with:
+          repository: ${{ steps.manifest.outputs.image-repository }}
+          digest: ${{ steps.manifest.outputs.image-digest }}
+          tag: ${{ steps.manifest.outputs.image-tag }}
+
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: v4.3.0
+
+      - name: Check the chart
+        id: chart
+        uses: wireapp/wire-rm-actions/publish-chart@dev
+        with:
+          chart-file: ${{ steps.manifest.outputs.chart-path }}
+          version: ${{ steps.manifest.outputs.version }}
+          channel: ${{ steps.manifest.outputs.kind == 'ga' && 'stable' || 'dev' }}
+          username: ${{ steps.quay.outputs.username }}
+          password: ${{ steps.quay.outputs.token }}
+
+      - name: Release note for the release managers
+        id: note
+        if: inputs.notify-rm
+        env:
+          ASSET_DIR: ${{ steps.release.outputs.asset-dir }}
+          BODY_FILE: ${{ steps.release.outputs.body-file }}
+          NOTE_FILE: ${{ steps.manifest.outputs.note-file }}
+          DECLARATION_FILE: ${{ steps.manifest.outputs.declaration-file }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$NOTE_FILE" ]]; then note="${ASSET_DIR}/${NOTE_FILE}"; else note="$BODY_FILE"; fi
+          delimiter="rm_$(openssl rand -hex 16)"
+          {
+            printf 'description<<%s\n%s\n%s\n' "$delimiter" "$(cat "$note")" "$delimiter"
+            printf 'declaration_file=%s\n' "${DECLARATION_FILE:+${ASSET_DIR}/${DECLARATION_FILE}}"
+          } >> "$GITHUB_OUTPUT"
+
+      # The manifest of the release as published, with the publication block of the first run.
+      - name: Declare the release to the release managers
+        if: inputs.notify-rm
+        uses: wireapp/wire-rm-actions/notify-rm@dev
+        with:
+          component: my-component
+          version: ${{ steps.manifest.outputs.version }}
+          kind: ${{ steps.manifest.outputs.kind }}
+          repository: ${{ steps.chart.outputs.repository }}
+          digest: ${{ steps.chart.outputs.digest }}
+          release-url: ${{ github.server_url }}/${{ github.repository }}/releases/tag/v${{ steps.manifest.outputs.version }}
+          release-note-title: v${{ steps.manifest.outputs.version }}
+          release-note-description: ${{ steps.note.outputs.description }}
+          release-declaration-file: ${{ steps.note.outputs.declaration_file }}
+          release-manifest-file: ${{ steps.release.outputs.manifest }}
+          meta: |
+            commit=${{ steps.manifest.outputs.source-commit }}
+            branch=${{ steps.manifest.outputs.source-ref }}
+          rm-staging-url: ${{ vars.RM_STAGING_URL }}
+          rm-staging-audience: wire-release-manager-staging
+          rm-prod-url: ${{ vars.RM_PROD_URL }}
+          rm-prod-audience: wire-release-manager-prod
+          required: true
+
+      - name: Push the chart to the S3 repository (interim)
+        if: inputs.s3-chart
+        uses: wireapp/wire-rm-actions/publish-chart-s3@dev
+        with:
+          chart-file: ${{ steps.manifest.outputs.chart-path }}
+          s3-repository: ${{ steps.manifest.outputs.kind == 'ga' && 'charts' || 'charts-develop' }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Point wire-builds at the version
+        if: inputs.wire-builds
+        uses: wireapp/wire-rm-actions/wire-builds-bump@dev
+        with:
+          chart: my-component
+          version: ${{ steps.manifest.outputs.version }}
+          chart-repo: https://s3-eu-west-1.amazonaws.com/public.wire.com/${{ steps.manifest.outputs.kind == 'ga' && 'charts' || 'charts-develop' }}
+          commit: ${{ steps.manifest.outputs.source-commit }}
+          token: ${{ secrets.WIRE_BUILDS_WRITE_ACCESS_GH_TOKEN }}
+
+      - name: Docker logout
+        if: always()
+        run: docker logout quay.io
