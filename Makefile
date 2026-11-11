@@ -18,7 +18,7 @@ COMMIT_RE := ^((feat|fix|docs|build|chore|test|refactor|ci|perf|revert)(\([A-Za-
 SHELL_SCRIPTS := $(wildcard scripts/*.sh .githooks/*)
 # Explicit paths: only this repository's workflows, Dependabot config and
 # actions, never test fixtures or vendored files.
-AUDIT_PATHS := .github/workflows .github/dependabot.yml version build-image quay-login publish-chart notify-rm changelog release-declaration release-documents release-manifest compatibility release-inputs release-source promote-image ci-gate draft-release publish-chart-s3
+AUDIT_PATHS := .github/workflows .github/dependabot.yml version build-image quay-login publish-chart notify-rm changelog release-declaration release-documents release-manifest compatibility release-inputs release-source promote-image ci-gate draft-release publish-chart-s3 publish-extra-chart
 ZIZMOR_FORMAT := $(if $(GITHUB_ACTIONS),github,plain)
 
 .PHONY: ci tools lint audit audit-online test secrets-scan commit-msg commit-msg-check hooks release-prep

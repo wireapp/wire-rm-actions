@@ -14,7 +14,8 @@
 [promote-image](../promote-image/README.md) ·
 [ci-gate](../ci-gate/README.md) ·
 [draft-release](../draft-release/README.md) ·
-[publish-chart-s3](../publish-chart-s3/README.md)
+[publish-chart-s3](../publish-chart-s3/README.md) ·
+[publish-extra-chart](../publish-extra-chart/README.md)
 
 # publish-chart
 
@@ -29,6 +30,9 @@ version (ADR-0018), whatever `Chart.yaml` says, and pushes the package to
 `oci://<registry>/wire/charts/<channel>/<name>` (ADR-0012). It outputs the
 repository and the digest, ready for
 [notify-rm](../notify-rm/README.md).
+Extra charts that repackage an upstream release and name it in their
+`appVersion` use [publish-extra-chart](../publish-extra-chart/README.md)
+instead: here the rule has no exception.
 
 At publication, the chart is the `.tgz` asset of the draft release, the exact
 package that was prepared and approved: `chart-file` pushes it as is, without

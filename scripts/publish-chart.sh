@@ -2,7 +2,9 @@
 # Push a Helm chart to the ADR-0012 layout oci://<REGISTRY>/wire/charts/<CHANNEL>/<name>,
 # in one of two modes:
 #   - package (CHART_PATH): package the chart directory at VERSION (chart version
-#     == appVersion, ADR-0018) and push it, optionally with a Quay expiration;
+#     == appVersion, ADR-0018; APP_VERSION overrides the appVersion, for the
+#     extra charts that repackage an upstream release) and push it, optionally
+#     with a Quay expiration;
 #   - chart file (CHART_FILE): push an already packaged .tgz as is, the exact
 #     asset of a draft release, without repackaging and never with an expiration.
 # A version already in the registry is never overwritten: in package mode its
@@ -19,6 +21,8 @@
 # the Chart.yaml name), REGISTRY (default quay.io), CHANNEL (default dev),
 # ATTEMPTS (default 1: no retry; CHART_FILE only), RETRY_DELAY (seconds between
 # attempts, default 10),
+# APP_VERSION (package mode only, set by publish-extra-chart: the appVersion of
+# the package instead of VERSION),
 # EXPIRES_AFTER (dev channel, package mode only, e.g. 90d: Quay deletes the tag
 # after that delay; the pushed manifest gets the quay.expires-after annotation,
 # which helm push cannot set, so oras rewrites it: needs oras and jq on PATH).
@@ -36,6 +40,7 @@ version=${VERSION:-}
 registry=${REGISTRY:-quay.io}
 channel=${CHANNEL:-dev}
 expires_after=${EXPIRES_AFTER:-}
+app_version=${APP_VERSION:-}
 attempts=${ATTEMPTS:-1}
 retry_delay=${RETRY_DELAY:-10}
 
@@ -48,6 +53,11 @@ fi
 [[ -n $chart_path || -n $chart_file ]] || die "CHART_PATH or CHART_FILE is required"
 if (( attempts > 1 )) && [[ -z $chart_file ]]; then
   die "ATTEMPTS is for CHART_FILE only: a chart directory is packaged and pushed once"
+fi
+if [[ -n $app_version ]]; then
+  [[ -z $chart_file ]] || die "APP_VERSION is refused with CHART_FILE: a packaged chart is pushed as is"
+  [[ $app_version =~ ^[0-9A-Za-z][0-9A-Za-z.+_-]*$ ]] \
+    || die "APP_VERSION must be a version string (letters, digits and . + _ -), not '$app_version'"
 fi
 if [[ -n $expires_after ]]; then
   [[ -z $chart_file ]] || die "EXPIRES_AFTER is refused with CHART_FILE: a published chart never expires"
@@ -69,9 +79,9 @@ if [[ -n $chart_file ]]; then
   [[ -n $name ]] || die "cannot read the chart name from $chart_file"
   file_version=$(chart_field "$chart_file" version)
   [[ -n $file_version ]] || die "cannot read the chart version from $chart_file"
-  app_version=$(chart_field "$chart_file" appVersion)
-  [[ $app_version == "$file_version" ]] \
-    || die "$chart_file has appVersion '$app_version', expected the chart version '$file_version' (ADR-0018)"
+  file_app_version=$(chart_field "$chart_file" appVersion)
+  [[ $file_app_version == "$file_version" ]] \
+    || die "$chart_file has appVersion '$file_app_version', expected the chart version '$file_version' (ADR-0018)"
   if [[ -n $version && $version != "$file_version" ]]; then
     die "$chart_file is version '$file_version', expected '$version'"
   fi
@@ -124,7 +134,7 @@ while true; do
     if grep -q '^dependencies:' "$chart_path/Chart.yaml"; then
       helm dependency build "$chart_path"
     fi
-    helm package "$chart_path" --version "$version" --app-version "$version" -d "$work"
+    helm package "$chart_path" --version "$version" --app-version "${app_version:-$version}" -d "$work"
     helm push "$work/${name}-${version}.tgz" "$base" 2>&1 | tee "$work/push.log"
     digest=$(digest_of "$work/push.log")
     if [[ -n $expires_after && $digest == sha256:* ]]; then

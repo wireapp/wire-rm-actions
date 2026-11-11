@@ -168,6 +168,44 @@ def test_new_version_is_packaged_and_pushed(env):
     assert "digest=sha256:pushed" in result.stdout.splitlines()
 
 
+def test_app_version_sets_the_package_app_version(env):
+    result = _run(env, APP_VERSION="3.5.7")
+    assert result.returncode == 0, result.stderr
+    package = next(c for c in _calls(env) if c.startswith("package "))
+    assert f"--version {VERSION} --app-version 3.5.7" in package
+
+
+@pytest.mark.parametrize("value", ["3.5 7", "-x", "a/b"])
+def test_app_version_must_be_a_version_string(env, value):
+    result = _run(env, APP_VERSION=value)
+    assert result.returncode == 1
+    assert "APP_VERSION must be a version string" in result.stderr
+    assert _calls(env) == []
+
+
+def test_app_version_is_refused_with_a_chart_file(env, tmp_path):
+    tgz = _chart_file(tmp_path, "my-component", "1.41.5")
+    result = _run(env, CHART_PATH="", VERSION="", CHART_FILE=str(tgz), APP_VERSION="3.5.7")
+    assert result.returncode == 1
+    assert "APP_VERSION is refused with CHART_FILE" in result.stderr
+    assert _calls(env) == []
+
+
+def test_publish_chart_never_passes_an_app_version():
+    action = (SCRIPT.parent.parent / "publish-chart/action.yml").read_text()
+    assert "APP_VERSION" not in action
+
+
+def test_publish_extra_chart_requires_an_app_version():
+    import yaml
+
+    action = yaml.safe_load((SCRIPT.parent.parent / "publish-extra-chart/action.yml").read_text())
+    assert action["inputs"]["app-version"]["required"] is True
+    assert "chart-file" not in action["inputs"]
+    push = next(step for step in action["runs"]["steps"] if step.get("id") == "push")
+    assert push["env"]["APP_VERSION"] == "${{ inputs.app-version }}"
+
+
 def test_defaults_to_quay_dev(env):
     result = _run(env)
     assert result.returncode == 0, result.stderr
