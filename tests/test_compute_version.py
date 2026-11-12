@@ -103,6 +103,21 @@ def test_ga_wins_over_prerelease_on_same_commit(repo: Path):
     assert _version(repo, BRANCH="dev")["version"].startswith("5.3.1-")
 
 
+def test_dev_build_after_anchor_appends(repo: Path):
+    _git(repo, "tag", "v5.1.0-alpha.0")
+    commit_file(repo, "a", "2", DATE, "next")
+    out = _version(repo, BRANCH="release/5.1")
+    assert out["version"] == f"5.1.0-alpha.0.{TS}.g{_sha7(repo)}"
+    assert out["base_tag"] == "v5.1.0-alpha.0"
+
+
+def test_anchor_above_an_older_ga_on_same_commit(repo: Path):
+    _git(repo, "tag", "v5.0.80")
+    _git(repo, "tag", "v5.1.0-alpha.0")
+    commit_file(repo, "a", "2", DATE, "next")
+    assert _version(repo, BRANCH="release/5.1")["version"].startswith("5.1.0-alpha.0.")
+
+
 def test_other_tags_are_skipped(repo: Path):
     _git(repo, "tag", "v4.0.0")
     commit_file(repo, "a", "2", DATE, "next")

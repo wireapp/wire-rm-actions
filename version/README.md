@@ -38,6 +38,7 @@ next one.
 | other branch | GA `v5.2.1` | `5.2.2-20260930120000.my-feature.gabcdef0` |
 | dev/release branch | pre `v5.3.0-rc.1` | `5.3.0-rc.1.20260930120000.gabcdef0` |
 | other branch | pre `v5.3.0-rc.1` | `5.3.0-rc.1.20260930120000.my-feature.gabcdef0` |
+| dev/release branch | anchor `v5.3.0-alpha.0` | `5.3.0-alpha.0.20260930120000.gabcdef0` |
 
 In **release mode** (`mode: release`), a prepare-release workflow asks for the
 next explicit version of a branch, from the release tags reachable from it:
@@ -84,20 +85,24 @@ next explicit version of a branch, from the release tags reachable from it:
 
 - `actions/checkout` with `fetch-depth: 0` (history and tags) for a dev build:
   a shallow clone fails.
-- At least one source tag reachable from the commit: `<prefix>X.Y.Z` (GA) or
-  `<prefix>X.Y.Z-alpha.N`, `-beta.N`, `-rc.N` with `N` from 1 (pre-release).
-  Tags of another form (`v1.2.3-alpha04`, `v1.2.3-pre.3`) are skipped.
+- At least one source tag reachable from the commit: `<prefix>X.Y.Z` (GA),
+  `<prefix>X.Y.Z-alpha.N`, `-beta.N`, `-rc.N` with `N` from 1 (pre-release),
+  or an anchor numbered 0 (`<prefix>X.Y.Z-alpha.0`), which opens a line for
+  the dev builds and release mode but is never a version itself. Tags of
+  another form (`v1.2.3-alpha04`, `v1.2.3-pre.3`) are skipped.
 - `bash`, `git` and GNU `sort` (`ubuntu-latest`).
 
 ### Behaviour
 
 - **Tag build** (`github.ref_type == tag`): the version is the tag without its
-  prefix. A tag that is neither GA nor pre-release fails the step.
+  prefix. A tag that is neither GA nor pre-release fails the step, an anchor
+  numbered 0 included.
 - **Dev build**: the branch is `github.head_ref` on a pull request, else the
   pushed branch.
   - The nearest source tag comes from `git describe`. When several tags point
-    to that commit (`rc.2`, then the GA), the highest wins, a GA above any
-    pre-release.
+    to that commit (`rc.2`, then the GA), the highest in SemVer wins, as in
+    release mode: a GA above its own pre-releases, an anchor `5.1.0-alpha.0`
+    above an older GA `5.0.80`.
   - `<ts>` is the committer date in UTC, `YYYYMMDDHHMMSS`, and `<sha7>` the
     first 7 characters of the commit.
   - Outside `release-branches`, `<branch>` is the last segment of the branch
