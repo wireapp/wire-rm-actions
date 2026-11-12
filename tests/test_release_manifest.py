@@ -39,7 +39,7 @@ ENV_KEYS = (
     "COMPATIBILITY_FILE", "DOCUMENTS_JSON", "REQUEST_ID", "RM_ORIGIN", "ASSET_DIR", "RUN_URL",
     "DIGESTS_JSON", "OUT", "PUBLISHED_AT", "BUILD_WORKFLOW", "BUILD_RUN_ID", "BUILD_RUN_URL",
     "BUILD_CREATED_AT", "INPUTS_JSON", "EXTRA_ARTIFACTS_JSON", "EXPIRES_AFTER", "GITHUB_OUTPUT",
-    "CHECK_SOURCE_BRANCH",
+    "CHECK_SOURCE_BRANCH", "CHART_ONLY",
 )
 
 
@@ -295,6 +295,106 @@ def test_write_converts_the_publication_file(work: Path):
         "includes": [],
     }
     assert not any(line.startswith(("file=", "format=")) for line in result.stdout.splitlines())
+
+
+# --- chart-only ----------------------------------------------------------------------
+
+
+def _write_chart_only(**changes: str) -> dict[str, str]:
+    return {
+        "MODE": "write", "MANIFEST": "chart.json", "COMPONENT": "example-chart", "VERSION": "1.29.3",
+        "RELEASE_TYPE": "ga", "TAG_PREFIX": "example-chart/v", "SOURCE_REPOSITORY": "https://github.com/wireapp/charts",
+        "SOURCE_REF": "dev", "SOURCE_COMMIT": COMMIT, "CHART_ONLY": "true",
+        "CHART_REPOSITORY": "oci://quay.io/wire/charts/stable/example-chart", "CHART_DIGEST": CHART_DIGEST,
+        "BUILD_WORKFLOW": ".github/workflows/release.yaml", "BUILD_RUN_ID": "44",
+        "BUILD_RUN_URL": "https://github.com/wireapp/charts/actions/runs/44", **changes,
+    }
+
+
+CHART_ONLY_DEV = {"MANIFEST": "chart-dev.json", "VERSION": "1.29.4-20261112123929.g348ddc0", "RELEASE_TYPE": "dev",
+                  "CHART_REPOSITORY": "oci://quay.io/wire/charts/dev/example-chart"}
+
+
+def test_write_a_chart_only_release(work: Path):
+    result = _run(work, **_write_chart_only())
+    assert result.returncode == 0, result.stderr
+    doc = json.loads((work / "chart.json").read_text())
+    assert (doc["kind"], doc["source"]["tag"]) == ("ga", "example-chart/v1.29.3")
+    assert doc["artifacts"] == [
+        {"type": "chart", "repository": "oci://quay.io/wire/charts/stable/example-chart", "version": "1.29.3", "digest": CHART_DIGEST},
+    ]
+
+
+def test_write_a_chart_only_release_with_its_package(work: Path):
+    result = _run(work, **_write_chart_only(CHART_FILE="example-chart-1.29.3.tgz", CHART_SHA256="a" * 64))
+    assert result.returncode == 0, result.stderr
+    chart = json.loads((work / "chart.json").read_text())["artifacts"][0]
+    assert (chart["file"], chart["sha256"], chart["digest"]) == ("example-chart-1.29.3.tgz", "a" * 64, CHART_DIGEST)
+
+
+def test_write_a_chart_only_dev_build(work: Path):
+    result = _run(work, **_write_chart_only(**CHART_ONLY_DEV, EXPIRES_AFTER="90d", BUILD_CREATED_AT="2026-11-12T12:39:29Z"))
+    assert result.returncode == 0, result.stderr
+    doc = json.loads((work / "chart-dev.json").read_text())
+    assert doc["kind"] == "dev" and doc["source"]["tag"] is None and "expires_at" in doc
+    assert doc["artifacts"] == [
+        {"type": "chart", "repository": "oci://quay.io/wire/charts/dev/example-chart", "version": doc["version"], "digest": CHART_DIGEST},
+    ]
+
+
+def test_write_a_chart_only_dev_build_ignores_a_chart_file(work: Path):
+    result = _run(work, **_write_chart_only(**CHART_ONLY_DEV, CHART_FILE="example-chart.tgz"))
+    assert result.returncode == 0, result.stderr
+    assert "file" not in json.loads((work / "chart-dev.json").read_text())["artifacts"][0]
+
+
+def test_write_a_chart_only_manifest_with_extra_artifacts_keeps_the_chart_first(work: Path):
+    result = _run(work, **_write_chart_only(EXTRA_ARTIFACTS_JSON=json.dumps([BUNDLE])))
+    assert result.returncode == 0, result.stderr
+    assert [a["type"] for a in json.loads((work / "chart.json").read_text())["artifacts"]] == ["chart", "bundle"]
+
+
+@pytest.mark.parametrize(
+    ("changes", "message"),
+    [
+        ({"CHART_ONLY": "yes"}, "CHART_ONLY must be true or false"),
+        ({"IMAGE_REPOSITORY": "quay.io/wire/example"}, "a chart-only manifest has no image"),
+        ({"IMAGE_DIGEST": IMAGE_DIGEST}, "a chart-only manifest has no image"),
+        ({"IMAGE_CANDIDATE_TAG": "1.29.3-candidate-44"}, "a chart-only manifest has no image"),
+        ({"CHART_DIGEST": ""}, "the chart digest is not a sha256 digest"),
+        ({"CHART_DIGEST": "sha256:abc"}, "the chart digest is not a sha256 digest"),
+        ({"CHART_REPOSITORY": ""}, "manifest field .artifacts[0].repository is empty"),
+        ({"CHART_FILE": "example-chart-1.29.3.tgz"}, "CHART_FILE and CHART_SHA256 go together"),
+        ({"CHART_SHA256": "a" * 64}, "CHART_FILE and CHART_SHA256 go together"),
+        ({"CHART_FILE": "example-chart-1.29.3.tgz", "CHART_SHA256": "abc"}, "the chart sha256 is not a hex sha256"),
+        ({"VERSION": "1.29.3-rc.1"}, "does not match the release type"),
+    ],
+)
+def test_write_chart_only_refuses(work: Path, changes: dict, message: str):
+    result = _run(work, **_write_chart_only(**changes))
+    assert result.returncode == 1
+    assert message in result.stderr
+    assert not (work / "chart.json").exists()
+
+
+def test_write_without_chart_only_still_needs_the_image(work: Path):
+    result = _run(work, **_write_chart_only(CHART_ONLY="false"))
+    assert result.returncode == 1
+    assert "manifest field .artifacts[0].repository is empty" in result.stderr
+
+
+def test_verify_refuses_a_chart_only_manifest(work: Path):
+    assert _run(work, **_write_chart_only()).returncode == 0
+    result = _run(work, MODE="verify", MANIFEST="chart.json", ASSET_DIR=".")
+    assert result.returncode == 1
+    assert "is a chart-only manifest: verify checks the draft release of an image and its chart" in result.stderr
+
+
+def test_complete_a_chart_only_manifest(work: Path):
+    assert _run(work, **_write_chart_only()).returncode == 0
+    result = _run(work, MODE="complete", MANIFEST="chart.json", RUN_URL="https://x/44")
+    assert result.returncode == 0, result.stderr
+    assert json.loads((work / "chart.json").read_text())["publication"]["run_url"] == "https://x/44"
 
 
 def test_write_refuses_the_former_root_file(work: Path):

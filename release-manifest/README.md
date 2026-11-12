@@ -41,6 +41,13 @@ provided interfaces of a version from it.
 A dev build (`release-type: dev`) has no tag, no candidate tag and no chart
 file: its image and chart are identified by digest.
 
+A chart-only component (`chart-only: true`) ships a chart and no image, e.g.
+a chart that repackages an upstream release (`publish-extra-chart`). Its
+manifest lists the chart first, identified by `chart-digest` since the chart
+is already pushed when the manifest is written; a release may also give
+`chart-file` and `chart-sha256`. Such a manifest is written and completed,
+never verified: there is no draft of an image and its chart to check.
+
 ## Technical reference
 
 ### Inputs
@@ -53,7 +60,8 @@ file: its image and chart are identified by digest.
 | `source-repository`, `source-ref`, `source-commit` | write | Where the build comes from (full commit sha). |
 | `image-repository`, `image-digest`, `image-candidate-tag` | write | The image; the candidate tag for a release. |
 | `chart-repository`, `chart-file`, `chart-sha256` | write | The chart package of a release. |
-| `chart-digest` | write | The pushed chart of a dev build. |
+| `chart-digest` | write | The pushed chart of a dev build or of a chart-only component. |
+| `chart-only` | write | `true` or `false` (default `false`). When `true`, the chart is the only artifact besides the extra ones and the image inputs must be empty (see above). |
 | `compatibility-file` | write | Default empty: `publication/compatibility.yaml` (ADR-0020). Checked and converted by [compatibility](../compatibility/README.md); `includes` is written as `[]` when empty. |
 | `documents-json` | write | The `documents-json` output of [release-documents](../release-documents/README.md). |
 | `inputs-json` | write | The build inputs other than the source repository, e.g. the configuration repository: a JSON array of objects with a `name` (default `[]`), written as `inputs`. |
@@ -117,6 +125,27 @@ checkout of the source branch (`ref:` the manifest's `source.ref`,
 `fetch-depth: 0`) with `check-source-branch: true`, and pass the
 `complete` output to [notify-rm](../notify-rm/README.md) as
 `release-manifest-file`.
+
+A chart-only component writes its manifest once the chart is pushed:
+
+```yaml
+      - id: manifest
+        uses: wireapp/wire-rm-actions/release-manifest@<sha> # vX.Y.Z
+        with:
+          mode: write
+          manifest: ${{ runner.temp }}/release-manifest.json
+          component: my-chart
+          version: ${{ steps.version.outputs.version }}
+          release-type: ${{ inputs.release-type }}
+          tag-prefix: my-chart/v
+          source-repository: ${{ github.server_url }}/${{ github.repository }}
+          source-ref: dev
+          source-commit: ${{ steps.version.outputs.sha }}
+          chart-only: 'true'
+          chart-repository: ${{ steps.chart.outputs.repository }}
+          chart-digest: ${{ steps.chart.outputs.digest }}
+          compatibility-file: publication/my-chart/compatibility.yaml
+```
 
 ## Design notes
 
