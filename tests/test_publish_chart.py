@@ -17,7 +17,9 @@ VERSION = "4.24.3-20261005135125.gabcdef0"
 # makes the version already in the registry; FAKE_PUSH_DIGEST is the digest
 # the push prints (none when empty). The first FAKE_PUSH_FAILURES pushes fail
 # like a Quay 500; with FAKE_FAILED_PUSH_LANDS=1 the failed push has
-# committed, so the version is in the registry afterwards.
+# committed, so the version is in the registry afterwards. FAKE_PULL_ERROR is
+# the error every pull fails with instead. Like helm, pull does not create its
+# destination directory (-d) and fails when it is missing.
 FAKE_HELM = r"""#!/usr/bin/env bash
 set -euo pipefail
 echo "$*" >>"$HELM_LOG"
@@ -30,15 +32,21 @@ case "$1 ${2:-}" in
   fi
   ;;
 "pull "*)
-  if [[ ${FAKE_PUBLISHED:-} == 1 || -f $HELM_LOG.landed ]]; then
+  if [[ -n ${FAKE_PULL_ERROR:-} ]]; then
+    echo "Error: $FAKE_PULL_ERROR" >&2
+    exit 1
+  elif [[ ${FAKE_PUBLISHED:-} == 1 || -f $HELM_LOG.landed ]]; then
+    echo "Digest: sha256:existing"
+    if [[ ! -d $6 ]]; then
+      echo "Error: open $6/${2##*/}-$4.tgz123: no such file or directory" >&2
+      exit 1
+    fi
     if [[ -n ${FAKE_EXISTING_TGZ:-} ]]; then
-      mkdir -p "$6"
       cp "$FAKE_EXISTING_TGZ" "$6/"
     fi
     echo "Pulled: $2:$4"
-    echo "Digest: sha256:existing"
   else
-    echo "Error: $2:$4: not found" >&2
+    echo "Error: failed to perform \"FetchReference\" on source: ${2#oci://}:$4: not found" >&2
     exit 1
   fi
   ;;
@@ -181,6 +189,38 @@ def test_published_version_is_not_overwritten(env):
     assert not any(c.startswith(("package ", "push ")) for c in calls)
     assert "already published, not overwritten" in result.stdout
     assert _outputs(env)["digest"] == "sha256:existing"
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        "open /tmp/work/existing/my-component.tgz123: no such file or directory",
+        'failed to perform "FetchReference" on source: GET "https://quay.io/v2/x/manifests/1": response status code 500: Internal Server Error',
+        "dial tcp 1.2.3.4:443: i/o timeout",
+    ],
+)
+def test_a_pull_that_fails_for_another_reason_stops_before_any_push(env, tmp_path, error):
+    for extra in ({}, {"CHART_PATH": "", "VERSION": "", "CHART_FILE": str(_chart_file(tmp_path, "my-component", "1.41.5"))}):
+        Path(env["HELM_LOG"]).unlink(missing_ok=True)
+        result = _run(env, FAKE_PULL_ERROR=error, **extra)
+        assert result.returncode == 1
+        assert "cannot tell whether" in result.stderr and error in result.stderr
+        assert not any(c.startswith(("package ", "push ")) for c in _calls(env))
+        assert Path(env["GITHUB_OUTPUT"]).read_text() == ""
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        'failed to perform "FetchReference" on source: quay.io/wire/charts/dev/my-component:1: not found',
+        'failed to perform "FetchReference" on source: GET "https://quay.io/v2/x/manifests/1": response status code 401: unauthorized',
+        "MANIFEST_UNKNOWN: manifest unknown",
+    ],
+)
+def test_an_absent_version_is_pushed(env, error):
+    result = _run(env, FAKE_PULL_ERROR=error)
+    assert result.returncode == 0, result.stderr
+    assert _outputs(env)["status"] == "pushed"
 
 
 def test_dependencies_are_built(env):
