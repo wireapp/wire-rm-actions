@@ -7,6 +7,10 @@
 #   nearest pre X.Y.Z-<pre>.N   dev/release branch  X.Y.Z-<pre>.N.<ts>.g<sha7>
 #                               other branch        X.Y.Z-<pre>.N.<ts>.<branch>.g<sha7>
 #
+# A pre-release tag numbered 0 (X.Y.Z-alpha.0) is an anchor: it opens a line
+# for the dev builds and for release-version.sh, but is never a version itself,
+# so a tag build refuses it.
+#
 # <ts> is the committer date in UTC as YYYYMMDDHHMMSS, <sha7> the first 7
 # characters of the commit, <branch> the last segment of the branch name,
 # lowercased, non-alphanumerics replaced by '-', cut to 14 characters, without
@@ -37,6 +41,7 @@ max_length=63
 num='(0|[1-9][0-9]*)'
 ga_re="^${num}\\.${num}\\.${num}\$"
 pre_re="^${num}\\.${num}\\.${num}-(alpha|beta|rc)\\.[1-9][0-9]*\$"
+anchor_re="^${num}\\.${num}\\.${num}-(alpha|beta|rc)\\.0\$"
 
 # The version a source tag names, or nothing when it is not GA nor pre-release.
 tag_version() {
@@ -47,16 +52,26 @@ tag_version() {
   fi
 }
 
-# The highest version among those tags: a GA above any pre-release.
-highest() {
-  local ga pre
-  ga=$(grep -Ev -- '-' <<<"$1" || true)
-  pre=$(grep -E -- '-' <<<"$1" || true)
-  if [[ -n $ga ]]; then
-    sort -V <<<"$ga" | tail -n1
-  else
-    sort -V <<<"$pre" | tail -n1
+# Like tag_version, anchors included: the tags a dev build may derive from.
+base_version() {
+  local v=${1#"$prefix"}
+  [[ $1 == "$prefix"* ]] || return 0
+  if [[ $v =~ $ga_re || $v =~ $pre_re || $v =~ $anchor_re ]]; then
+    echo "$v"
   fi
+}
+
+# The highest version among those tags in SemVer, as release-version.sh picks
+# its anchor: a GA above the pre-releases of its own version.
+highest() {
+  local best="" v
+  while read -r v; do
+    [[ -n $v ]] || continue
+    if [[ -z $best || $("$here/semver.sh" compare "$v" "$best") == 1 ]]; then
+      best=$v
+    fi
+  done <<<"$1"
+  echo "$best"
 }
 
 sha=$(git rev-parse --verify "${ref}^{commit}") || die "unknown commit: $ref"
@@ -85,12 +100,12 @@ while :; do
   nearest=$(git describe --tags --abbrev=0 --match "${prefix}[0-9]*" \
     ${excludes[@]+"${excludes[@]}"} "$sha" 2>/dev/null) ||
     die "no GA or pre-release tag (${prefix}X.Y.Z, ${prefix}X.Y.Z-alpha|beta|rc.N) is reachable from $sha"
-  [[ -n $(tag_version "$nearest") ]] && break
+  [[ -n $(base_version "$nearest") ]] && break
   excludes+=(--exclude "$nearest")
 done
 
 # Several tags on that commit (rc.2 then the GA): the highest wins.
-candidates=$(git tag --points-at "${nearest}^{commit}" | while read -r t; do tag_version "$t"; done)
+candidates=$(git tag --points-at "${nearest}^{commit}" | while read -r t; do base_version "$t"; done)
 base=$(highest "$candidates")
 base_tag="${prefix}${base}"
 
