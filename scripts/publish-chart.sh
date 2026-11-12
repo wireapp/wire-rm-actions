@@ -10,7 +10,8 @@
 # A version already in the registry is never overwritten: in package mode its
 # digest is read back; in chart-file mode the same content (the pulled .tgz has
 # the sha256 of the given one) is a no-op and another content a hard failure.
-# So a rerun of the same commit or the same candidate is safe.
+# So a rerun of the same commit or the same candidate is safe. A presence check
+# that fails for another reason than an absent version stops the script.
 # With ATTEMPTS > 1 (chart file mode only) a failed push is tried again: Quay
 # has answered 500 on a manifest PUT that had committed, so the presence check
 # runs again before every push and a chart that landed meanwhile is a no-op
@@ -104,6 +105,15 @@ digest_of() {
   sed -n 's/^Digest: *//p' "$1" | tail -n1
 }
 
+# Only an answer that the version is not there makes it absent. Any other
+# failure of helm pull (a local error, the network, a 5xx) stops here: taking it
+# for absent would push over a published version. A missing repository answers
+# 401/403, and a push without access fails the same way, so it overwrites nothing.
+readonly absent_re='not found|manifest unknown|name unknown|status code 40[134]|unauthorized|denied'
+
+# helm pull does not create its destination directory.
+mkdir -p "$work/existing"
+
 status=pushed
 digest=
 attempt=1
@@ -121,6 +131,9 @@ while true; do
     digest=$(digest_of "$work/pull.log")
     status=present
     break
+  elif ! grep -qiE "$absent_re" "$work/pull.log"; then
+    cat "$work/pull.log" >&2
+    die "cannot tell whether $repository:$version is published: helm pull failed, and not because the version is absent"
   elif [[ -n $chart_file ]]; then
     if helm push "$chart_file" "$base" 2>&1 | tee "$work/push.log"; then
       digest=$(digest_of "$work/push.log")
