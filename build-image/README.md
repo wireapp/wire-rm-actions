@@ -14,7 +14,8 @@
 [promote-image](../promote-image/README.md) ·
 [ci-gate](../ci-gate/README.md) ·
 [draft-release](../draft-release/README.md) ·
-[publish-chart-s3](../publish-chart-s3/README.md)
+[publish-chart-s3](../publish-chart-s3/README.md) ·
+[wire-builds-bump](../wire-builds-bump/README.md)
 
 # build-image
 
@@ -88,7 +89,10 @@ its build inputs.
    `org.opencontainers.image.version`, `.revision`, `.source` and `.created`
    (the build time, UTC) and those of `labels`, the
    `provenance` and `sbom` attestations, and with `expires-after` the
-   `quay.expires-after` label.
+   `quay.expires-after` label and annotation. Annotations go on the manifest
+   and on the index, which buildx pushes for a multi-platform image or when
+   it attaches attestations; Quay reads the expiry of an index from its
+   annotation, not from the label.
 4. Reads the digest back from the registry and checks it is the one the build
    pushed.
 5. With `username`: logs out of the registry, also when a previous step

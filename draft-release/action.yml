@@ -3,7 +3,8 @@ description: >-
   The draft GitHub Release of a release candidate (ADR-0021 sections 3 and 4).
   create opens the draft with its body and assets; resolve finds and checks
   the draft and downloads its assets; publish replaces assets, decides
-  make_latest and publishes the draft, which creates the tag.
+  make_latest and publishes the draft, which creates the tag. A rerun after
+  the publication resumes: the published release is checked, not changed.
 inputs:
   mode:
     description: create, resolve or publish.
@@ -35,6 +36,9 @@ inputs:
   expected-commit:
     description: "resolve, publish: the commit the draft must target (optional)."
     default: ""
+  if-published:
+    description: "resolve, publish: resume (a release published by an earlier run is checked and accepted, publish changes nothing) or fail."
+    default: resume
   asset-dir:
     description: "resolve: where the assets are downloaded, default $RUNNER_TEMP/release-assets."
     default: ""
@@ -84,6 +88,9 @@ outputs:
   tag-exists:
     description: "resolve: true when the tag already exists at the target commit."
     value: ${{ steps.release.outputs.tag-exists }}
+  already-published:
+    description: "resolve, publish: true when the release was published by an earlier run."
+    value: ${{ steps.release.outputs.already-published }}
   asset-dir:
     description: "resolve: where the assets were downloaded."
     value: ${{ steps.release.outputs.asset-dir }}
@@ -94,7 +101,7 @@ outputs:
     description: "resolve: file holding the body of the draft."
     value: ${{ steps.release.outputs.body-file }}
   make-latest:
-    description: "publish: the make_latest value sent."
+    description: "publish: the make_latest value sent, unchanged on a release published earlier."
     value: ${{ steps.release.outputs.make-latest }}
 runs:
   using: composite
@@ -114,6 +121,7 @@ runs:
         ASSETS: ${{ inputs.assets }}
         RELEASE_ID: ${{ inputs.release-id }}
         EXPECTED_COMMIT: ${{ inputs.expected-commit }}
+        IF_PUBLISHED: ${{ inputs.if-published }}
         ASSET_DIR: ${{ inputs.asset-dir }}
         DOWNLOAD: ${{ inputs.download }}
         MANIFEST_NAME: ${{ inputs.manifest-name }}

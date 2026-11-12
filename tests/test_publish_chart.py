@@ -30,7 +30,12 @@ case "$1 ${2:-}" in
   fi
   ;;
 "pull "*)
-  if [[ ${FAKE_PUBLISHED:-} == 1 || -f $HELM_LOG.landed ]]; then
+  if [[ -f $HELM_LOG.registry ]]; then
+    mkdir -p "$6"
+    cp "${FAKE_READBACK_TGZ:-$(<"$HELM_LOG.registry")}" "$6/"
+    echo "Pulled: $2:$4"
+    echo "Digest: ${FAKE_READBACK_DIGEST:-${FAKE_PUSH_DIGEST:-}}"
+  elif [[ ${FAKE_PUBLISHED:-} == 1 || -f $HELM_LOG.landed ]]; then
     if [[ -n ${FAKE_EXISTING_TGZ:-} ]]; then
       mkdir -p "$6"
       cp "$FAKE_EXISTING_TGZ" "$6/"
@@ -63,6 +68,8 @@ case "$1 ${2:-}" in
     exit 1
   fi
   echo "Pushed: ${3#oci://}/$(basename "$2" .tgz)"
+  # A pushed package can be pulled back (chart file mode reads it back).
+  [[ $2 != */existing/* ]] && realpath "$2" >"$HELM_LOG.registry"
   if [[ -n ${FAKE_PUSH_DIGEST:-} ]]; then
     echo "Digest: $FAKE_PUSH_DIGEST"
   fi
@@ -374,7 +381,8 @@ def test_presence_is_checked_before_every_attempt(env, tmp_path):
     tgz = _chart_file(tmp_path, "my-component", "1.41.5")
     _run(env, CHART_PATH="", VERSION="", CHART_FILE=str(tgz), ATTEMPTS="3", FAKE_PUSH_FAILURES="2")
     kinds = [c.split()[0] for c in _calls(env) if c.startswith(("pull ", "push "))]
-    assert kinds == ["pull", "push", "pull", "push", "pull", "push"]
+    # The last pull reads the pushed chart back.
+    assert kinds == ["pull", "push", "pull", "push", "pull", "push", "pull"]
 
 
 def test_failed_push_that_landed_is_present_not_pushed_again(env, tmp_path):
@@ -426,3 +434,35 @@ def test_attempts_are_checked_before_any_registry_call(env, extra, message):
     assert result.returncode == 1
     assert message in result.stderr
     assert _calls(env) == []
+
+
+def test_chart_file_is_read_back_after_the_push(env, tmp_path):
+    tgz = _chart_file(tmp_path, "my-component", "1.41.5")
+    result = _run(env, CHART_PATH="", VERSION="", CHART_FILE=str(tgz), CHANNEL="stable")
+    assert result.returncode == 0, result.stderr
+    kinds = [c.split()[0] for c in _calls(env) if c.startswith(("pull ", "push "))]
+    assert kinds == ["pull", "push", "pull"]
+    assert "read back: same chart, digest sha256:pushed" in result.stdout
+
+
+def test_chart_file_read_back_with_another_content_fails(env, tmp_path):
+    tgz = _chart_file(tmp_path, "my-component", "1.41.5")
+    other = _chart_file(tmp_path / "other", "my-component", "1.41.5")
+    with open(other, "ab") as f:
+        f.write(b"tampered")
+    result = _run(env, CHART_PATH="", VERSION="", CHART_FILE=str(tgz), CHANNEL="stable", FAKE_READBACK_TGZ=str(other))
+    assert result.returncode == 1
+    assert "pulled back with another content" in result.stderr
+
+
+def test_chart_file_read_back_with_another_digest_fails(env, tmp_path):
+    tgz = _chart_file(tmp_path, "my-component", "1.41.5")
+    result = _run(env, CHART_PATH="", VERSION="", CHART_FILE=str(tgz), CHANNEL="stable", FAKE_READBACK_DIGEST="sha256:other")
+    assert result.returncode == 1
+    assert "pulled back with digest 'sha256:other', the push printed sha256:pushed" in result.stderr
+
+
+def test_packaged_chart_is_not_read_back(env):
+    result = _run(env)
+    assert result.returncode == 0, result.stderr
+    assert [c.split()[0] for c in _calls(env) if c.startswith("pull ")] == ["pull"]

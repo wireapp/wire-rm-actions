@@ -14,7 +14,8 @@
 [promote-image](../promote-image/README.md) ·
 [ci-gate](../ci-gate/README.md) ·
 **draft-release** ·
-[publish-chart-s3](../publish-chart-s3/README.md)
+[publish-chart-s3](../publish-chart-s3/README.md) ·
+[wire-builds-bump](../wire-builds-bump/README.md)
 
 # draft-release
 
@@ -41,6 +42,17 @@ absent, or already at the target commit (a publication completed earlier),
 never at another commit. The sha256 of the downloaded assets is checked by
 [release-manifest](../release-manifest/README.md) `verify`, not here.
 
+A rerun after the publication resumes instead of failing (`if-published:
+resume`, the default). `resolve` accepts the release an earlier run
+published, when its tag exists at the commit it targets (and at
+`expected-commit`), and downloads its assets as for a draft. `publish` then
+writes nothing: each `replace-assets` file must match the published asset,
+the manifest without its `publication` block (a manifest completed by
+another tool may carry another date), any other file byte for byte. A difference fails the step.
+So a publication that broke after the tag (declaration, S3 chart, wire-builds)
+is replayed by running the publication again, and every step before the tag
+is already idempotent. `if-published: fail` keeps the strict behaviour.
+
 `make-latest: auto` is `true` for a GA whose `source-ref` matches
 `latest-branches`, unless a newer GA tag already exists (it went out while
 the approval waited); `false` otherwise.
@@ -59,6 +71,7 @@ the approval waited); `false` otherwise.
 | `prerelease` | create | `auto` (the version has a `-` suffix), `true` or `false`. |
 | `assets` | create, resolve | create: files to attach, one per line; resolve: more asset names to download. |
 | `release-id`, `expected-commit` | resolve, publish | The draft id (empty: found by tag) and the commit it must target. |
+| `if-published` | resolve, publish | `resume` (default): a release published by an earlier run is checked and accepted, `publish` changes nothing; `fail`: refused. |
 | `asset-dir` | resolve | Default `$RUNNER_TEMP/release-assets`. |
 | `download` | resolve | `none`, `manifest` (default), `manifest-files` (the manifest and every `file` of its `artifacts` and `documents`) or `all`. |
 | `manifest-name` | resolve | Default `release-manifest.json`. |
@@ -74,8 +87,9 @@ the approval waited); `false` otherwise.
 | `id`, `tag`, `url` | all | The release; `url` is the draft URL, the published one after `publish`. |
 | `published-url` | create | The URL once published (404 until then). |
 | `target-commitish`, `prerelease`, `tag-exists` | resolve | The draft's commit, kind, tag state. |
+| `already-published` | resolve, publish | `true` when an earlier run published the release. |
 | `asset-dir`, `manifest`, `body-file` | resolve | Where the assets are, the manifest path (empty when not downloaded), the body. |
-| `make-latest` | publish | The value sent. |
+| `make-latest` | publish | The value sent, `unchanged` when the release was already published. |
 
 ### Requirements
 
@@ -148,6 +162,13 @@ few seconds. The lookup is retried; more than one match is a conflict, never
 a guess.
 
 **Published last, and only once.** `publish` is the last write: the tag is
-born there, on the commit the draft targets. A release that is no longer a
-draft is refused, and a tag at another commit stops the publication before
-anything changes.
+born there, on the commit the draft targets. A tag at another commit stops
+the publication before anything changes.
+
+**A rerun resumes, it never rewrites.** Once the tag exists, the steps after
+it (the declaration, the S3 chart, the wire-builds bump) still have to run,
+and a failure among them used to leave no way back but manual commands. A
+published release is now accepted on a rerun, but only when it is the same
+release: same tag, same commit, same frozen manifest and same documents.
+Nothing is uploaded or patched on it, so the first run's `publication` block
+stays the record.

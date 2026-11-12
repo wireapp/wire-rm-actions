@@ -14,7 +14,8 @@
 [promote-image](../promote-image/README.md) ·
 [ci-gate](../ci-gate/README.md) ·
 [draft-release](../draft-release/README.md) ·
-[publish-chart-s3](../publish-chart-s3/README.md)
+[publish-chart-s3](../publish-chart-s3/README.md) ·
+[wire-builds-bump](../wire-builds-bump/README.md)
 
 # notify-rm
 
@@ -101,6 +102,11 @@ an ingest token kept in a repository secret. The release manager checks the
 token and the repository it comes from, and lets it declare only the components
 that repository is bound to.
 
+- **The repository must be bound in the release manager** (`oidc.repositories`:
+  repository name, id and the components it may declare), before its first run.
+  Otherwise the release manager answers `403`, the step warns that the token of
+  the repository was refused and names that binding, and the build stays green
+  (unless `required: "true"`): nothing is declared until the binding exists.
 - **The caller needs `permissions: id-token: write`, at job level only**, never
   at workflow level: that permission lets every step of the job request tokens.
   Without it the step warns (`the job lacks permissions: id-token: write`) and
@@ -141,6 +147,15 @@ that repository is bound to.
   in a public component, call `notify-rm` yourself.
 - **Success**: any `2xx`. Otherwise the response body (500 bytes at most) is
   shown in the log, never interpreted as workflow commands.
+- **`401` or `403`**: a refused credential, and the warning says what to fix.
+  In OIDC mode, the release manager does not know the repository
+  (`GITHUB_REPOSITORY`, with its `GITHUB_REPOSITORY_ID`) or does not let it
+  declare the component: add the repository, its id and its components to
+  `oidc.repositories` in the release manager configuration
+  (`config/components.yaml`) and redeploy it. With an ingest token, the token
+  is expired, revoked or bound to another component: issue a new one and update
+  the secret. Either way the build stays green unless `required: "true"`, so
+  read the warnings of a first run in a new repository.
 - **Release declaration file** missing or not a JSON object: a failed
   declaration, and nothing is sent anywhere.
 - **Failure**: a warning, so a release manager outage never breaks a build,

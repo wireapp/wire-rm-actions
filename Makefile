@@ -18,7 +18,7 @@ COMMIT_RE := ^((feat|fix|docs|build|chore|test|refactor|ci|perf|revert)(\([A-Za-
 SHELL_SCRIPTS := $(wildcard scripts/*.sh .githooks/*)
 # Explicit paths: only this repository's workflows, Dependabot config and
 # actions, never test fixtures or vendored files.
-AUDIT_PATHS := .github/workflows .github/dependabot.yml version build-image quay-login publish-chart notify-rm changelog release-declaration release-documents release-manifest compatibility release-inputs release-source promote-image ci-gate draft-release publish-chart-s3
+AUDIT_PATHS := .github/workflows .github/dependabot.yml version build-image quay-login publish-chart notify-rm changelog release-declaration release-documents release-manifest compatibility release-inputs release-source promote-image ci-gate draft-release publish-chart-s3 wire-builds-bump templates/repair-publication.yml
 ZIZMOR_FORMAT := $(if $(GITHUB_ACTIONS),github,plain)
 
 .PHONY: ci tools lint audit audit-online test secrets-scan commit-msg commit-msg-check hooks release-prep
@@ -42,6 +42,7 @@ $(VENV)/.installed: requirements-ci.txt
 lint: tools
 	$(SHELLCHECK) -x $(SHELL_SCRIPTS)
 	$(ACTIONLINT)
+	$(ACTIONLINT) templates/*.yml
 
 audit: tools
 	$(ZIZMOR) --offline --format $(ZIZMOR_FORMAT) $(AUDIT_PATHS)
@@ -92,7 +93,9 @@ commit-msg-check:
 hooks:
 	git config core.hooksPath .githooks
 
-# Point dev-build.yml at the release about to be tagged: make release-prep VERSION=vX.Y.Z
+# Point dev-build.yml and the templates at the release about to be tagged:
+# make release-prep VERSION=vX.Y.Z
 release-prep:
 	@if [ -z "$(VERSION)" ]; then echo "usage: make release-prep VERSION=vX.Y.Z" >&2; exit 64; fi
 	scripts/set-release-ref.sh "$(VERSION)"
+	for f in templates/*.yml; do WORKFLOW="$$f" scripts/set-release-ref.sh "$(VERSION)" || exit 1; done

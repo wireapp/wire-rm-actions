@@ -7,7 +7,9 @@
 #   verify    check downloaded release assets against the manifest: version, source commit,
 #             chart sha256, document sha256, and print the fields publication needs;
 #   complete  append the `publication` block (published_at, run_url, OCI digests) to a
-#             manifest without touching anything above it; idempotent.
+#             manifest without touching anything above it; idempotent: a manifest already
+#             completed with the same digests is kept as is (its first date and run), with
+#             other digests it fails.
 #
 # Inputs (environment), write:
 #   MANIFEST             output path (default: release-manifest.json)
@@ -375,6 +377,17 @@ complete() {
     || die "DIGESTS_JSON must be an object of sha256 digests: '$digests'"
   [[ "$(jq -r '.schemaVersion // empty' "$MANIFEST")" == "$SCHEMA_VERSION" ]] \
     || die "'$MANIFEST' is not a ${SCHEMA_VERSION} manifest"
+
+  # Completed by an earlier run (a rerun after the publication): the first block is the
+  # record and is kept as is, so the release managers receive the same manifest again.
+  if jq -e '.publication | type == "object"' "$MANIFEST" >/dev/null 2>&1; then
+    jq -e --argjson digests "$digests" '.publication.digests == $digests' "$MANIFEST" >/dev/null \
+      || die "'$MANIFEST' was completed with other digests: $(jq -c '.publication.digests' "$MANIFEST")"
+    [[ "$out" == "$MANIFEST" ]] || cp "$MANIFEST" "$out"
+    echo "Release manifest already completed by $(jq -r '.publication.run_url' "$MANIFEST"): kept as is in ${out}."
+    emit manifest "$out"
+    return
+  fi
 
   tmp="$(mktemp)"
   jq --arg published_at "$published_at" --arg run_url "$run_url" --argjson digests "$digests" '
