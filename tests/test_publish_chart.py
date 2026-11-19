@@ -17,7 +17,10 @@ VERSION = "4.24.3-20261005135125.gabcdef0"
 # makes the version already in the registry; FAKE_PUSH_DIGEST is the digest
 # the push prints (none when empty). The first FAKE_PUSH_FAILURES pushes fail
 # like a Quay 500; with FAKE_FAILED_PUSH_LANDS=1 the failed push has
-# committed, so the version is in the registry afterwards.
+# committed, so the version is in the registry afterwards. Like helm, a pull
+# fails when its destination directory does not exist (helm 3.19 and 3.20 both
+# print the digest, then cannot write the file), which the script would read as
+# "not published".
 FAKE_HELM = r"""#!/usr/bin/env bash
 set -euo pipefail
 echo "$*" >>"$HELM_LOG"
@@ -31,12 +34,12 @@ case "$1 ${2:-}" in
   ;;
 "pull "*)
   if [[ ${FAKE_PUBLISHED:-} == 1 || -f $HELM_LOG.landed ]]; then
-    if [[ -n ${FAKE_EXISTING_TGZ:-} ]]; then
-      mkdir -p "$6"
-      cp "$FAKE_EXISTING_TGZ" "$6/"
-    fi
     echo "Pulled: $2:$4"
     echo "Digest: sha256:existing"
+    [[ -d $6 ]] || { echo "Error: open $6/chart.tgz: no such file or directory" >&2; exit 1; }
+    if [[ -n ${FAKE_EXISTING_TGZ:-} ]]; then
+      cp "$FAKE_EXISTING_TGZ" "$6/"
+    fi
   else
     echo "Error: $2:$4: not found" >&2
     exit 1

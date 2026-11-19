@@ -58,6 +58,9 @@ fi
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
+# helm pull does not create its destination: without it every pull fails, which
+# reads as "not published" and the version would be pushed over.
+mkdir "$work/existing"
 
 chart_field() { # <chart dir or .tgz> <field>
   helm show chart "$1" | sed -n "s/^$2: *//p" | head -n1 | sed "s/^[\"']//; s/[\"']\$//"
