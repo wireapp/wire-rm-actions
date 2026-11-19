@@ -56,8 +56,16 @@ inputs:
     description: "write: sha256 of the chart package (releases)."
     default: ""
   chart-digest:
-    description: "write: sha256 digest of the pushed chart (dev builds)."
+    description: "write: sha256 digest of the pushed chart (dev builds, chart-only components)."
     default: ""
+  chart-only:
+    description: >-
+      write: true for a component that ships a chart and no image (e.g. a
+      chart that repackages an upstream release): the chart, identified by
+      chart-digest, is the only artifact besides the extra ones; a release
+      may also give chart-file and chart-sha256. The image inputs must be
+      empty. Such a manifest is never verified.
+    default: "false"
   compatibility-file:
     description: "write: the compatibility file; empty reads publication/compatibility.yaml (ADR-0020)."
     default: ""
@@ -191,6 +199,7 @@ runs:
         CHART_FILE: ${{ inputs.chart-file }}
         CHART_SHA256: ${{ inputs.chart-sha256 }}
         CHART_DIGEST: ${{ inputs.chart-digest }}
+        CHART_ONLY: ${{ inputs.chart-only }}
         COMPATIBILITY_FILE: ${{ inputs.compatibility-file }}
         DOCUMENTS_JSON: ${{ inputs.documents-json }}
         INPUTS_JSON: ${{ inputs.inputs-json }}

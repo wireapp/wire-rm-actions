@@ -19,7 +19,12 @@
 #     REQUEST_ID and RM_ORIGIN are not used
 #   SOURCE_REPOSITORY, SOURCE_REF, SOURCE_COMMIT
 #   IMAGE_REPOSITORY, IMAGE_DIGEST, IMAGE_CANDIDATE_TAG
-#   CHART_REPOSITORY (oci://...), CHART_FILE, CHART_SHA256, CHART_DIGEST (dev only)
+#   CHART_REPOSITORY (oci://...), CHART_FILE, CHART_SHA256, CHART_DIGEST (dev, chart-only)
+#   CHART_ONLY (true | false, default false): a component that ships a chart and no image,
+#     e.g. a chart that repackages an upstream release. The chart is the first artifact and
+#     is identified by CHART_DIGEST, as it is already pushed when the manifest is written; a
+#     release may also give CHART_FILE and CHART_SHA256 (both or neither). IMAGE_* must be
+#     empty. Such a manifest is written and completed, never verified
 #   COMPATIBILITY_FILE   read by compatibility.sh: default publication/compatibility.yaml
 #                        (ADR-0020 section 3)
 #   BUILD_WORKFLOW, BUILD_RUN_ID, BUILD_RUN_URL, BUILD_CREATED_AT (default: now, UTC)
@@ -80,7 +85,7 @@ write() {
   local version="${VERSION:-}" type="${RELEASE_TYPE:-}"
   local compat_file="${COMPATIBILITY_FILE:-}"
   local documents="${DOCUMENTS_JSON:-}" inputs="${INPUTS_JSON:-}" extras="${EXTRA_ARTIFACTS_JSON:-}"
-  local expires_after="${EXPIRES_AFTER:-}"
+  local expires_after="${EXPIRES_AFTER:-}" chart_only="${CHART_ONLY:-false}"
   [[ -n "$documents" ]] || documents='{}'
   [[ -n "$inputs" ]] || inputs='[]'
   [[ -n "$extras" ]] || extras='[]'
@@ -133,6 +138,18 @@ write() {
   fi
   [[ -z "${REQUEST_ID:-}" || -n "${RM_ORIGIN:-}" ]] || die "RM_ORIGIN is required with REQUEST_ID"
   [[ -n "${REQUEST_ID:-}" || -z "${RM_ORIGIN:-}" ]] || die "RM_ORIGIN is set without REQUEST_ID"
+  case "$chart_only" in
+    true | false) ;;
+    *) die "CHART_ONLY must be true or false (got: '$chart_only')" ;;
+  esac
+  if [[ "$chart_only" == true ]]; then
+    [[ -z "${IMAGE_REPOSITORY:-}${IMAGE_DIGEST:-}${IMAGE_CANDIDATE_TAG:-}" ]] \
+      || die "a chart-only manifest has no image: IMAGE_REPOSITORY, IMAGE_DIGEST and IMAGE_CANDIDATE_TAG must be empty"
+    if [[ "$kind" != dev && -n "${CHART_FILE:-}${CHART_SHA256:-}" ]]; then
+      [[ -n "${CHART_FILE:-}" && -n "${CHART_SHA256:-}" ]] \
+        || die "CHART_FILE and CHART_SHA256 go together: give both or neither"
+    fi
+  fi
 
   tmp="$(mktemp)"
   trap 'rm -f "$tmp"' RETURN
@@ -152,6 +169,7 @@ write() {
     --arg chart_file "${CHART_FILE:-}" \
     --arg chart_sha256 "${CHART_SHA256:-}" \
     --arg chart_digest "${CHART_DIGEST:-}" \
+    --arg chart_only "$chart_only" \
     --argjson compatibility "$compatibility" \
     --arg build_workflow "${BUILD_WORKFLOW:-}" \
     --arg build_run_id "${BUILD_RUN_ID:-}" \
@@ -182,7 +200,10 @@ write() {
         tag: (if $kind == "dev" then null else $tag_prefix + $version end)
       },
       inputs: $inputs,
-      artifacts: ((if $kind == "dev" then [
+      artifacts: ((if $chart_only == "true" then [
+        {type: "chart", repository: $chart_repository, version: $version, digest: $chart_digest}
+        + (if $kind != "dev" and $chart_file != "" then {file: $chart_file, sha256: $chart_sha256} else {} end)
+      ] elif $kind == "dev" then [
         {type: "image", repository: $image_repository, tag: $version, digest: $image_digest},
         {type: "chart", repository: $chart_repository, version: $version, digest: $chart_digest}
       ] else [
@@ -228,18 +249,30 @@ write() {
   # only moved into place once every check passed.
   require "$tmp" .schemaVersion .component .version .kind \
     .source.repository .source.ref .source.commit \
-    '.artifacts[0].repository' '.artifacts[0].tag' '.artifacts[0].digest' \
-    '.artifacts[1].repository' '.artifacts[1].version' \
     .build.workflow .build.run_id .build.run_url .build.created_at
-  [[ "$(jq -r '.artifacts[0].digest' "$tmp")" =~ ^sha256:[0-9a-f]{64}$ ]] \
-    || die "the image digest is not a sha256 digest"
-  if [[ "$kind" == dev ]]; then
-    [[ "$(jq -r '.artifacts[1].digest' "$tmp")" =~ ^sha256:[0-9a-f]{64}$ ]] \
+  if [[ "$chart_only" == true ]]; then
+    # The chart alone, identified by its digest; a release may also carry its package.
+    require "$tmp" '.artifacts[0].repository' '.artifacts[0].version'
+    [[ "$(jq -r '.artifacts[0].digest' "$tmp")" =~ ^sha256:[0-9a-f]{64}$ ]] \
       || die "the chart digest is not a sha256 digest"
+    if [[ "$kind" != dev ]]; then
+      require "$tmp" .source.tag
+      [[ "$(jq -r '.artifacts[0].sha256 // ""' "$tmp")" =~ ^([0-9a-f]{64})?$ ]] \
+        || die "the chart sha256 is not a hex sha256"
+    fi
   else
-    require "$tmp" .source.tag '.artifacts[0].candidate_tag' '.artifacts[1].file' '.artifacts[1].sha256'
-    [[ "$(jq -r '.artifacts[1].sha256' "$tmp")" =~ ^[0-9a-f]{64}$ ]] \
-      || die "the chart sha256 is not a hex sha256"
+    require "$tmp" '.artifacts[0].repository' '.artifacts[0].tag' '.artifacts[0].digest' \
+      '.artifacts[1].repository' '.artifacts[1].version'
+    [[ "$(jq -r '.artifacts[0].digest' "$tmp")" =~ ^sha256:[0-9a-f]{64}$ ]] \
+      || die "the image digest is not a sha256 digest"
+    if [[ "$kind" == dev ]]; then
+      [[ "$(jq -r '.artifacts[1].digest' "$tmp")" =~ ^sha256:[0-9a-f]{64}$ ]] \
+        || die "the chart digest is not a sha256 digest"
+    else
+      require "$tmp" .source.tag '.artifacts[0].candidate_tag' '.artifacts[1].file' '.artifacts[1].sha256'
+      [[ "$(jq -r '.artifacts[1].sha256' "$tmp")" =~ ^[0-9a-f]{64}$ ]] \
+        || die "the chart sha256 is not a hex sha256"
+    fi
   fi
   [[ "$(jq -r '.source.commit' "$tmp")" =~ ^[0-9a-f]{40}$ ]] \
     || die "the source commit is not a full sha"
@@ -264,6 +297,8 @@ verify() {
   jq -e 'type == "object"' "$MANIFEST" >/dev/null 2>&1 || die "'$MANIFEST' is not a JSON object"
   schema="$(jq -r '.schemaVersion // empty' "$MANIFEST")"
   [[ "$schema" == "$SCHEMA_VERSION" ]] || die "manifest schemaVersion is '${schema}', expected '${SCHEMA_VERSION}'"
+  [[ "$(jq -r '.artifacts[0].type // empty' "$MANIFEST")" != chart ]] \
+    || die "'$MANIFEST' is a chart-only manifest: verify checks the draft release of an image and its chart"
   require "$MANIFEST" .component .version .kind .source.ref .source.commit .source.tag \
     '.artifacts[0].repository' '.artifacts[0].tag' '.artifacts[0].digest' \
     '.artifacts[1].repository' '.artifacts[1].version' '.artifacts[1].file' '.artifacts[1].sha256' \
