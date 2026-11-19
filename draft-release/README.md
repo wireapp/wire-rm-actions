@@ -96,7 +96,8 @@ the approval waited); `false` otherwise.
 
 - `bash`, `jq` and `gh` (all GitHub-hosted runners); no checkout.
 - Token permissions: `contents: write` in every mode. `resolve` only reads,
-  but GitHub lists draft releases to push access only.
+  but GitHub lists draft releases to push access only; `contents: read` is
+  enough to resolve a release that is already published (the repair template).
 
 ## Example
 
