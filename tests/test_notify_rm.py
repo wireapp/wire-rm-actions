@@ -71,6 +71,11 @@ def _run(**env: str) -> subprocess.CompletedProcess:
     )
 
 
+def _annotations(result, level="warning", rm="staging") -> list[str]:
+    """The titled annotations of one release manager (the other one, unset, is skipped with its own)."""
+    return [line for line in result.stdout.splitlines() if line.startswith(f"::{level} title=rm-{rm} ")]
+
+
 def test_declares_to_both(rms):
     staging, prod = rms
     result = _run(
@@ -115,7 +120,7 @@ def test_unset_url_skips_with_explicit_warning(rms):
     result = _run(RM_STAGING_URL=staging.url, RM_STAGING_TOKEN="t", RM_PROD_URL="", REQUIRED="true")
     assert result.returncode == 0, result.stderr
     assert len(staging.calls) == 1
-    assert "release manager prod: RM_PROD_URL is not set or empty" in result.stdout
+    assert "::warning title=rm-prod skipped::RM_PROD_URL is not set or empty; my-component" in result.stdout
 
 
 def test_failure_only_warns(rms):
@@ -128,7 +133,9 @@ def test_failure_only_warns(rms):
         RM_PROD_TOKEN="t",
     )
     assert result.returncode == 0, result.stderr
-    assert "::warning::release manager staging" in result.stdout
+    assert _annotations(result) == [
+        "::warning title=rm-staging answered HTTP 500::my-component 4.24.3-20261005135125.gabcdef0 not declared there"
+    ]
     assert len(prod.calls) == 1
 
 
@@ -154,11 +161,10 @@ def test_response_body_shown_on_failure_only_without_workflow_commands(rms):
     assert "prod-body" not in result.stdout
 
 
-@pytest.mark.parametrize("status", [401, 403])
-def test_a_refused_ingest_token_says_what_to_fix(rms, status):
+def test_an_unknown_ingest_token_is_a_refused_credential(rms):
     staging, prod = rms
-    staging.status = status
-    staging.body = b'{"message": "token not accepted: unknown token"}'
+    staging.status = 401
+    staging.body = b'{"message": "authentication required"}'
     result = _run(
         RM_STAGING_URL=staging.url,
         RM_STAGING_TOKEN="t",
@@ -168,14 +174,26 @@ def test_a_refused_ingest_token_says_what_to_fix(rms, status):
         GITHUB_REPOSITORY_ID="12345",
     )
     assert result.returncode == 0, result.stderr
-    warning = next(line for line in result.stdout.splitlines() if line.startswith("::warning::release manager staging"))
-    assert f"refused the ingest token of wireapp/wire-account (id 12345) (HTTP {status})" in warning
-    assert "not bound to the component my-component" in warning
-    assert "Issue a new ingest token" in warning
-    assert "OIDC" not in warning
-    assert "4.24.3-20261005135125.gabcdef0 is not declared there" in warning
-    assert "token not accepted: unknown token" in result.stdout
+    (warning,) = _annotations(result)
+    assert warning.startswith("::warning title=rm-staging credential refused (HTTP 401)::")
+    assert "the ingest token was not accepted (authentication required): it is unknown or expired" in warning
+    assert "issue a new one for my-component" in warning
+    assert "OIDC" not in warning and "oidc" not in warning
+    assert warning.endswith("; my-component 4.24.3-20261005135125.gabcdef0 is not declared there")
     assert len(prod.calls) == 1
+
+
+def test_an_ingest_token_of_another_component_is_a_refused_declaration(rms):
+    staging, _ = rms
+    staging.status = 403
+    staging.body = b'{"message": "token may feed only [\'ibis\']; rejected components: [\'my-component\']"}'
+    result = _run(RM_STAGING_URL=staging.url, RM_STAGING_TOKEN="t")
+    assert result.returncode == 0, result.stderr
+    (warning,) = _annotations(result)
+    assert warning.startswith("::warning title=rm-staging declaration refused (HTTP 403)::")
+    assert "the ingest token of this repository was accepted but the declaration was refused" in warning
+    assert "(token may feed only ['ibis']; rejected components: ['my-component'])" in warning
+    assert "my-component is not among the components it may declare" in warning
 
 
 def test_a_refused_credential_fails_when_required(rms):
@@ -387,7 +405,7 @@ def test_missing_declaration_file_warns_and_skips(rms, tmp_path: Path):
         DECLARATION_FILE=str(tmp_path / "missing.json"),
     )
     assert result.returncode == 0, result.stderr
-    assert "::warning::release declaration file" in result.stdout
+    assert "::warning title=nothing declared::release declaration file" in result.stdout
     assert "does not exist" in result.stdout
     assert staging.calls == [] and prod.calls == []
 
@@ -469,7 +487,7 @@ def test_bad_manifest_file_is_a_failed_declaration(rms, tmp_path: Path, content)
         file.write_text(content)
     result = _run(RM_STAGING_URL=staging.url, RM_STAGING_TOKEN="t", MANIFEST_FILE=str(file))
     assert result.returncode == 0, result.stderr
-    assert "::warning::release manifest file" in result.stdout
+    assert "::warning title=nothing declared::release manifest file" in result.stdout
     result = _run(RM_STAGING_URL=staging.url, RM_STAGING_TOKEN="t", REQUIRED="true", MANIFEST_FILE=str(file))
     assert result.returncode == 1
     assert "::error::declaration failed: release manifest file" in result.stderr
@@ -542,7 +560,10 @@ def test_oidc_token_requested_for_the_audience_and_sent_as_bearer(rms, idp):
     assert idp.calls[0]["query"]["api-version"] == ["2.0"]
     assert idp.calls[0]["auth"] == f"Bearer {REQUEST_TOKEN}"
     assert staging.calls[0]["auth"] == f"Bearer {JWT}"
-    assert "::notice::my-component" in result.stdout
+    assert (
+        "::notice title=rm-staging declared::my-component 4.24.3-20261005135125.gabcdef0 declared to the staging release manager"
+        in result.stdout
+    )
 
 
 def test_oidc_token_is_masked_first_and_never_printed(rms, idp):
@@ -600,8 +621,9 @@ def test_missing_id_token_permission_warns_and_posts_nothing(rms):
     result = _run(RM_STAGING_URL=staging.url, RM_STAGING_AUDIENCE="aud")
     assert result.returncode == 0, result.stderr
     assert staging.calls == []
-    assert "id-token: write" in result.stdout
-    assert "::warning::release manager staging" in result.stdout
+    (warning,) = _annotations(result)
+    assert warning.startswith("::warning title=rm-staging no OIDC token::")
+    assert "id-token: write" in warning
 
 
 def test_missing_id_token_permission_fails_when_required(rms):
@@ -665,13 +687,13 @@ def test_the_oidc_token_never_goes_to_a_non_https_release_manager(idp):
     assert "not an https:// URL" in result.stdout
 
 
-@pytest.mark.parametrize("status", [401, 403])
-def test_a_refused_oidc_token_names_the_repository_and_the_binding(rms, idp, status):
+def test_an_unknown_repository_is_a_refused_credential(rms, idp):
     # The wire-account case: a green build, nothing in the release manager, because the
-    # repository was not bound in oidc.repositories. The warning must say so.
+    # repository was not bound in oidc.repositories. The release manager answers 401
+    # without a reason (no oracle for an unknown repository); the warning gives the fix.
     staging, _ = rms
-    staging.status = status
-    staging.body = b'{"message": "token not accepted: unknown-repository"}'
+    staging.status = 401
+    staging.body = b'{"message": "token not accepted"}'
     result = _run(
         RM_STAGING_URL=staging.url,
         RM_STAGING_AUDIENCE="wire-release-manager-staging",
@@ -681,23 +703,109 @@ def test_a_refused_oidc_token_names_the_repository_and_the_binding(rms, idp, sta
     )
     assert result.returncode == 0, result.stderr
     assert len(staging.calls) == 1
-    warning = next(line for line in result.stdout.splitlines() if line.startswith("::warning::release manager staging"))
-    assert f"refused the OIDC token of wireapp/wire-account (id 12345) (HTTP {status})" in warning
-    assert "does not know this repository, or does not let it declare the component my-component" in warning
-    assert "oidc.repositories" in warning and "config/components.yaml" in warning
-    assert "4.24.3-20261005135125.gabcdef0 is not declared there" in warning
+    (warning,) = _annotations(result)
+    assert warning.startswith("::warning title=rm-staging credential refused (HTTP 401)::")
+    assert "the OIDC token of wireapp/wire-account (id 12345) was not accepted (token not accepted): " in warning
+    assert "the repository is not bound in the release manager (oidc.repositories: name, id, components)" in warning
+    assert "the audience is not the one it expects, or the token expired" in warning
+    assert warning.endswith("; my-component 4.24.3-20261005135125.gabcdef0 is not declared there")
     assert "ingest token" not in warning
     assert JWT not in warning
-    assert "token not accepted: unknown-repository" in result.stdout
+    assert "declaration refused" not in result.stdout
 
 
-def test_a_refused_oidc_token_without_runner_variables(rms, idp):
+@pytest.mark.parametrize(
+    ("body", "quoted"),
+    [
+        (b'{"message": "token expired"}', " (token expired): "),
+        (b'{"message": "token not accepted for this audience"}', " (token not accepted for this audience): "),
+        (
+            b'{"message": "token not accepted: event-not-allowed", "errors": {"reason": "event-not-allowed", "claims": {}}}',
+            " (token not accepted: event-not-allowed; reason: event-not-allowed): ",
+        ),
+        (b"<html>401</html>", ": "),
+        (b"", ": "),
+    ],
+    ids=["expired", "audience", "reason", "html", "empty"],
+)
+def test_the_release_manager_message_is_quoted_when_there_is_one(rms, idp, body, quoted):
     staging, _ = rms
-    staging.status = 403
+    staging.status = 401
+    staging.body = body
     result = _run(RM_STAGING_URL=staging.url, RM_STAGING_AUDIENCE="aud", **_oidc_env(idp))
     assert result.returncode == 0, result.stderr
-    assert "refused the OIDC token of this repository (HTTP 403)" in result.stdout
-    assert "(id " not in result.stdout
+    (warning,) = _annotations(result)
+    assert f"the OIDC token of this repository was not accepted{quoted}the repository" in warning
+    assert "(id " not in warning
+
+
+def test_a_component_outside_the_binding_is_a_refused_declaration(rms, idp):
+    staging, _ = rms
+    staging.status = 403
+    staging.body = b'{"message": "token may feed only [\'wire-account\']; rejected components: [\'my-component\']"}'
+    result = _run(
+        RM_STAGING_URL=staging.url,
+        RM_STAGING_AUDIENCE="aud",
+        GITHUB_REPOSITORY="wireapp/wire-account",
+        **_oidc_env(idp),
+    )
+    assert result.returncode == 0, result.stderr
+    (warning,) = _annotations(result)
+    assert warning.startswith("::warning title=rm-staging declaration refused (HTTP 403)::")
+    assert "the OIDC token of wireapp/wire-account was accepted but the declaration was refused" in warning
+    assert "(token may feed only ['wire-account']; rejected components: ['my-component']): " in warning
+    assert "my-component is not among the components it may declare, or a rule of the release manager" in warning
+    assert "credential refused" not in result.stdout
+
+
+def test_the_release_manager_message_cannot_write_a_workflow_command(rms, idp, tmp_path: Path):
+    staging, _ = rms
+    staging.status = 403
+    staging.body = (
+        b'{"message": "x\\n::error::injected\\r::add-mask::y %0A `code` ' + b"m" * 300 + b'", "errors": {"reason": "r\\n::error::again"}}'
+    )
+    gh_summary = tmp_path / "summary.md"
+    result = _run(
+        RM_STAGING_URL=staging.url, RM_STAGING_AUDIENCE="aud", GITHUB_STEP_SUMMARY=str(gh_summary), **_oidc_env(idp)
+    )
+    assert result.returncode == 0, result.stderr
+    lines = result.stdout.splitlines()
+    # The body is shown raw only inside the stop-commands block.
+    start = next(i for i, line in enumerate(lines) if line.startswith("::stop-commands::"))
+    end = lines.index(f"::{lines[start].removeprefix('::stop-commands::')}::")
+    for i, line in enumerate(lines):
+        if line.startswith(("::error::", "::add-mask::y", "::error%3A%3A")):
+            assert start < i < end, line
+    (warning,) = _annotations(result)
+    # Control characters and backticks are dropped, the message is cut at 200 characters.
+    assert "x::error::injected::add-mask::y %250A code mmm" in warning
+    assert "m" * 201 not in warning
+    assert "reason: r::error::again" in warning
+    summary_text = gh_summary.read_text()
+    # One summary line per outcome: the message cannot open a line, nor close its backticks.
+    assert not any(line.startswith("::") for line in summary_text.splitlines())
+    assert "`code`" not in summary_text
+    assert "(`x::error::injected::add-mask::y %0A code mmm" in summary_text
+    assert "oidc.repositories" not in summary_text and "components the repository" in summary_text
+
+
+def test_a_summary_explains_the_fix(rms, idp, tmp_path: Path):
+    staging, _ = rms
+    staging.status = 401
+    staging.body = b'{"message": "token not accepted"}'
+    gh_summary = tmp_path / "summary.md"
+    result = _run(
+        RM_STAGING_URL=staging.url,
+        RM_STAGING_AUDIENCE="wire-release-manager-staging",
+        GITHUB_REPOSITORY="wireapp/wire-account",
+        GITHUB_REPOSITORY_ID="12345",
+        GITHUB_STEP_SUMMARY=str(gh_summary),
+        **_oidc_env(idp),
+    )
+    assert result.returncode == 0, result.stderr
+    text = gh_summary.read_text()
+    assert "- release manager staging: not declared, HTTP 401, the OIDC token of wireapp/wire-account (id 12345) was not accepted (`token not accepted`)." in text
+    assert "`oidc.repositories`" in text and "`wire-release-manager-staging`" in text
 
 
 def test_a_refused_oidc_token_fails_when_required(rms, idp):
@@ -722,3 +830,32 @@ def test_a_blank_audience_is_not_an_audience(rms, idp):
     assert result.returncode == 0, result.stderr
     assert idp.calls == [] and staging.calls == []
     assert "no ingest token" in result.stdout
+
+
+@pytest.mark.parametrize("env", [{"COMPONENT": "my\ncomponent"}, {"VERSION": "1.0\r::error::x"}, {"COMPONENT": "a\tb"}])
+def test_component_and_version_cannot_hold_control_characters(rms, env):
+    staging, _ = rms
+    result = _run(RM_STAGING_URL=staging.url, RM_STAGING_TOKEN="t", **env)
+    assert result.returncode == 1
+    assert "COMPONENT and VERSION must not hold control characters" in result.stderr
+    assert staging.calls == []
+    assert "::error::x" not in result.stdout
+
+
+def test_every_annotation_has_a_title(rms):
+    staging, prod = rms
+    staging.status = 500
+    result = _run(RM_STAGING_URL=staging.url, RM_STAGING_TOKEN="t", RM_PROD_URL=prod.url, RM_PROD_TOKEN="t")
+    assert result.returncode == 0, result.stderr
+    untitled = [
+        line
+        for line in result.stdout.splitlines()
+        if line.startswith(("::warning::", "::notice::", "::error::"))
+    ]
+    assert untitled == []
+    assert _annotations(result) == [
+        "::warning title=rm-staging answered HTTP 500::my-component 4.24.3-20261005135125.gabcdef0 not declared there"
+    ]
+    assert _annotations(result, "notice", "prod") == [
+        "::notice title=rm-prod declared::my-component 4.24.3-20261005135125.gabcdef0 declared to the prod release manager"
+    ]

@@ -103,9 +103,10 @@ that repository is bound to.
 
 - **The repository must be bound in the release manager** (`oidc.repositories`:
   repository name, id and the components it may declare), before its first run.
-  Otherwise the release manager answers `403`, the step warns that the token of
-  the repository was refused and names that binding, and the build stays green
-  (unless `required: "true"`): nothing is declared until the binding exists.
+  Otherwise the release manager answers `401` (`token not accepted`), the step
+  warns that the credential of the repository was refused and names that
+  binding, and the build stays green (unless `required: "true"`): nothing is
+  declared until the binding exists.
 - **The caller needs `permissions: id-token: write`, at job level only**, never
   at workflow level: that permission lets every step of the job request tokens.
   Without it the step warns (`the job lacks permissions: id-token: write`) and
@@ -146,15 +147,31 @@ that repository is bound to.
   in a public component, call `notify-rm` yourself.
 - **Success**: any `2xx`. Otherwise the response body (500 bytes at most) is
   shown in the log, never interpreted as workflow commands.
-- **`401` or `403`**: a refused credential, and the warning says what to fix.
-  In OIDC mode, the release manager does not know the repository
-  (`GITHUB_REPOSITORY`, with its `GITHUB_REPOSITORY_ID`) or does not let it
-  declare the component: add the repository, its id and its components to
-  `oidc.repositories` in the release manager configuration
-  (`config/components.yaml`) and redeploy it. With an ingest token, the token
-  is expired, revoked or bound to another component: issue a new one and update
-  the secret. Either way the build stays green unless `required: "true"`, so
-  read the warnings of a first run in a new repository.
+- **`401`**: the credential was refused, a configuration error and not an
+  outage. The release manager says why in its answer (`token expired`,
+  `token not accepted for this audience`, `token not accepted`), quoted in the
+  warning. In OIDC mode, `token not accepted` without a reason means the
+  release manager does not know the repository (`GITHUB_REPOSITORY`, with its
+  `GITHUB_REPOSITORY_ID`): bind it in its `oidc.repositories` (name, id,
+  components) and redeploy it. With an ingest token, the token is unknown or
+  expired: issue a new one and update the secret.
+- **`403`**: the credential was accepted but the declaration refused: the
+  component is not among those the repository (or the token) may declare
+  (`token may feed only [...]; rejected components: [...]`), or a rule of the
+  release manager refused the record (prod: a declaration outside the release
+  environment, a dev build outside a trunk or release branch). Add the
+  component to the binding, or read the quoted reason.
+- Either way the build stays green unless `required: "true"`, so read the
+  warnings of a first run in a new repository. The job summary repeats the
+  outcome with the fix.
+- **Annotations**: every outcome is a titled annotation (`::warning
+  title=rm-staging credential refused (HTTP 401)::…`), so the run's annotation
+  list shows the release manager and the outcome in bold with a one-line
+  message under it; the detail is in the job summary. The release manager
+  message is cut at 200 characters, stripped of control characters and
+  backticks, and escaped as workflow commands require: nothing in an answer can
+  write a workflow command or a summary line of its own. `component` and
+  `version` are refused when they hold a control character, for the same reason.
 - **Release declaration file** missing or not a JSON object: a failed
   declaration, and nothing is sent anywhere.
 - **Failure**: a warning, so a release manager outage never breaks a build,

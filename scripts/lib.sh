@@ -9,6 +9,10 @@
 #   here             this directory (scripts/), for sibling scripts
 #   die <message>    ::error:: line on stderr, exit 1
 #   warn <message>   ::warning:: line on stderr
+#   annotate <level> <title> <message>
+#                    titled annotation (::warning title=...::message) on stdout,
+#                    the title in bold in the run's annotation list; both parts
+#                    escaped as workflow commands require
 #   emit <key> <value>
 #                    key=value on stdout, appended to $GITHUB_OUTPUT when set
 #   sha256_of <file> hex digest, with sha256sum or shasum (macOS)
@@ -26,6 +30,24 @@ die() {
 
 warn() {
   echo "::warning::$*" >&2
+}
+
+# A GitHub annotation with a title: the run's annotation list shows the title in
+# bold and the message under it, so the message stays one line and the detail
+# goes to the job summary. Level: notice, warning or error. Percent, CR and LF
+# are escaped in both parts, colon and comma in the title too: nothing in a
+# value can end the command or start another one.
+annotate() {
+  local level=$1 title=$2 message=$3
+  title=${title//%/%25}
+  title=${title//$'\r'/%0D}
+  title=${title//$'\n'/%0A}
+  title=${title//:/%3A}
+  title=${title//,/%2C}
+  message=${message//%/%25}
+  message=${message//$'\r'/%0D}
+  message=${message//$'\n'/%0A}
+  printf '::%s title=%s::%s\n' "$level" "$title" "$message"
 }
 
 emit() {

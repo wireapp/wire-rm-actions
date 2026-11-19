@@ -40,11 +40,15 @@
 #                                        otherwise it only warns, so a release
 #                                        manager outage never breaks a build
 #
-# A 401 or 403 is a refused credential, not an outage, and the warning says
-# what to fix: in OIDC mode the release manager does not know the repository
-# ($GITHUB_REPOSITORY, id $GITHUB_REPOSITORY_ID) or does not let it declare
-# the component (oidc.repositories in its config/components.yaml); with an
-# ingest token, the token is expired, revoked or bound to another component.
+# Every outcome is a titled annotation (annotate, lib.sh): the title names the
+# release manager and the outcome, the message holds one line, the detail goes
+# to the job summary. A 401 or 403 is a configuration error, not an outage, and
+# the release manager says which in its JSON message, quoted in the annotation:
+# 401, the credential was refused (OIDC: the repository $GITHUB_REPOSITORY, id
+# $GITHUB_REPOSITORY_ID, is not bound in oidc.repositories, or the audience is
+# wrong, or the token expired; ingest: the token is unknown or expired); 403,
+# the credential was accepted but the declaration refused (the component is not
+# among those the repository or token may declare, or a release manager rule).
 set -euo pipefail
 export LC_ALL=C
 # shellcheck source=scripts/lib.sh
@@ -52,6 +56,11 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 : "${COMPONENT:?COMPONENT is required}"
 : "${VERSION:?VERSION is required}"
+# Both go into annotations and the job summary: a control character would let
+# them write a workflow command or a summary line of their own.
+[[ $COMPONENT != *[[:cntrl:]]* && $VERSION != *[[:cntrl:]]* ]] ||
+  die "COMPONENT and VERSION must not hold control characters"
+not_declared="$COMPONENT $VERSION is not declared there"
 
 extra_meta='{}'
 while IFS= read -r line; do
@@ -141,12 +150,12 @@ request_oidc_token() {
   local name=$1 audience=$2 encoded code sep='&'
   oidc_value=""
   if [[ -z ${ACTIONS_ID_TOKEN_REQUEST_URL:-} || -z ${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-} ]]; then
-    echo "::warning::release manager $name: no OIDC token, the job lacks permissions: id-token: write (job level), $COMPONENT $VERSION is not declared there"
+    annotate warning "rm-$name no OIDC token" "the job lacks permissions: id-token: write (job level); $not_declared"
     summary "- release manager $name: not declared, no id-token permission"
     return 1
   fi
   if [[ ! $ACTIONS_ID_TOKEN_REQUEST_URL =~ $allowed_url_re || $ACTIONS_ID_TOKEN_REQUEST_TOKEN == *[$'\r\n"\\']* ]]; then
-    echo "::warning::release manager $name: the OIDC token endpoint is not usable, $COMPONENT $VERSION is not declared there"
+    annotate warning "rm-$name no OIDC token" "the OIDC token endpoint is not usable; $not_declared"
     summary "- release manager $name: not declared, OIDC endpoint not usable"
     return 1
   fi
@@ -159,7 +168,7 @@ request_oidc_token() {
   # A JWT only: the value goes into a workflow command and a header.
   if [[ $code != 2?? || ! $oidc_value =~ ^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*$ ]]; then
     oidc_value=""
-    echo "::warning::release manager $name: no OIDC token for the $name audience (HTTP $code), $COMPONENT $VERSION is not declared there"
+    annotate warning "rm-$name no OIDC token" "no OIDC token for the $name audience (HTTP $code); $not_declared"
     summary "- release manager $name: not declared, no OIDC token"
     return 1
   fi
@@ -168,15 +177,16 @@ request_oidc_token() {
 
 # Declare to one release manager; returns 1 when that declaration failed.
 declare_to() {
-  local name=$1 var=$2 url=$3 token=$4 audience=${5:-} code hint stop curl_status host credential=token repository
+  local name=$1 var=$2 url=$3 token=$4 audience=${5:-} code hint stop curl_status host
+  local credential="ingest token" repository message reason detail
   if [[ -z $url ]]; then
-    echo "::warning::release manager $name: $var is not set or empty, $COMPONENT $VERSION is not declared there"
+    annotate warning "rm-$name skipped" "$var is not set or empty; $not_declared"
     summary "- release manager $name: skipped, $var not set"
     return 0
   fi
   # A line break in a variable would let it write workflow commands into the log.
   if [[ $url == *[[:cntrl:]]* ]]; then
-    echo "::warning::release manager $name (rm-$name): the URL holds a control character, $COMPONENT $VERSION is not declared there"
+    annotate warning "rm-$name invalid URL" "the URL holds a control character; $not_declared"
     summary "- release manager $name: not declared, invalid URL"
     return 1
   fi
@@ -191,22 +201,22 @@ declare_to() {
   # The ingest token never travels in clear text: https only, but for a
   # loopback release manager (tests).
   if [[ ! $url =~ $allowed_url_re ]]; then
-    echo "::warning::release manager $name (rm-$name): not an https:// URL, $COMPONENT $VERSION is not declared there"
+    annotate warning "rm-$name invalid URL" "not an https:// URL; $not_declared"
     summary "- release manager $name: not declared, not an https:// URL"
     return 1
   fi
   if [[ -z $token && -n ${audience//[[:space:]]/} ]]; then
     request_oidc_token "$name" "$audience" || return 1
     token=$oidc_value
-    credential=oidc
+    credential="OIDC token"
   fi
   if [[ -z $token ]]; then
-    echo "::warning::release manager $name (rm-$name): no ingest token, $COMPONENT $VERSION is not declared there"
+    annotate warning "rm-$name not declared" "no ingest token; $not_declared"
     summary "- release manager $name: not declared, no token"
     return 1
   fi
   if [[ $token == *[$'\r\n']* ]]; then
-    echo "::warning::release manager $name (rm-$name): the ingest token holds a line break, $COMPONENT $VERSION is not declared there"
+    annotate warning "rm-$name invalid token" "the ingest token holds a line break; $not_declared"
     summary "- release manager $name: not declared, invalid token"
     return 1
   fi
@@ -234,35 +244,53 @@ declare_to() {
     head -c 500 "$response" || true
     echo
     echo "::$stop::"
-    hint=""
-    [[ $code == 3?? ]] && hint=" (a 3xx means an interactive SSO in front of the API)"
-    [[ $code == 000 ]] && hint=" (unreachable)"
     if [[ $code == 401 || $code == 403 ]]; then
-      # A refused credential is a configuration error, never an outage: the
-      # warning names the repository and the fix. The runner sets
+      # A configuration error, never an outage. The release manager says why
+      # in the JSON message of its answer: quoted, one line, 200 characters at
+      # most, control characters and backticks removed (it also goes into the
+      # Markdown summary); annotate escapes the rest. The runner sets
       # GITHUB_REPOSITORY and GITHUB_REPOSITORY_ID, neither is a secret.
       repository="${GITHUB_REPOSITORY:-this repository}"
       [[ -z ${GITHUB_REPOSITORY_ID:-} ]] || repository="$repository (id ${GITHUB_REPOSITORY_ID})"
-      if [[ $credential == oidc ]]; then
-        echo "::warning::release manager $name (rm-$name) refused the OIDC token of $repository (HTTP $code): the release manager does not know this repository, or does not let it declare the component $COMPONENT. Add the repository (name, id, components) to oidc.repositories in its configuration (config/components.yaml) and redeploy it; until then $COMPONENT $VERSION is not declared there"
-        summary "- release manager $name: not declared, HTTP $code, the OIDC token of $repository was refused (repository not bound to $COMPONENT in the release manager configuration)"
+      message=$(jq -rs 'first(.[] | objects | .message? // empty) // empty' "$response" 2>/dev/null | tr -d '[:cntrl:]`' | head -c 200 || true)
+      reason=$(jq -rs 'first(.[] | objects | .errors? | objects | .reason? // empty) // empty' "$response" 2>/dev/null | tr -d '[:cntrl:]`' | head -c 80 || true)
+      detail=${message:+" ($message${reason:+; reason: $reason})"}
+      if [[ $code == 401 && $credential == "OIDC token" ]]; then
+        annotate warning "rm-$name credential refused (HTTP 401)" \
+          "the OIDC token of $repository was not accepted$detail: the repository is not bound in the release manager (oidc.repositories: name, id, components), or the audience is not the one it expects, or the token expired; $not_declared"
+        summary "- release manager $name: not declared, HTTP 401, the OIDC token of $repository was not accepted${message:+ (\`$message\`)}." \
+          "  Bind the repository in the release manager configuration, \`oidc.repositories\`: its name, its id and the components it may declare; check the audience (\`$audience\`) and that the job requests the token right before the declaration."
+      elif [[ $code == 401 ]]; then
+        annotate warning "rm-$name credential refused (HTTP 401)" \
+          "the ingest token was not accepted$detail: it is unknown or expired, issue a new one for $COMPONENT and update the secret; $not_declared"
+        summary "- release manager $name: not declared, HTTP 401, the ingest token was not accepted${message:+ (\`$message\`)}." \
+          "  Issue a new ingest token for \`$COMPONENT\` in the release manager and update the secret."
       else
-        echo "::warning::release manager $name (rm-$name) refused the ingest token of $repository (HTTP $code): the token is expired, revoked, or not bound to the component $COMPONENT. Issue a new ingest token for $COMPONENT in the release manager and update the secret; until then $COMPONENT $VERSION is not declared there"
-        summary "- release manager $name: not declared, HTTP $code, the ingest token was refused (expired, revoked or bound to another component)"
+        annotate warning "rm-$name declaration refused (HTTP 403)" \
+          "the $credential of $repository was accepted but the declaration was refused$detail: $COMPONENT is not among the components it may declare, or a rule of the release manager refused the record; $not_declared"
+        summary "- release manager $name: not declared, HTTP 403, the $credential was accepted but the declaration refused${message:+ (\`$message\`)}." \
+          "  Add \`$COMPONENT\` to the components the repository (or the token) may declare in the release manager, or read the reason above: a prod rule can refuse a declaration made outside the release environment or a dev build outside a trunk or release branch."
       fi
       return 1
     fi
-    echo "::warning::release manager $name (rm-$name) answered $code$hint: $COMPONENT $VERSION not declared there"
+    hint=""
+    [[ $code == 3?? ]] && hint=" (a 3xx means an interactive SSO in front of the API)"
+    if [[ $code == 000 ]]; then
+      annotate warning "rm-$name unreachable" "$COMPONENT $VERSION not declared there (unreachable)"
+      summary "- release manager $name: not declared, unreachable"
+      return 1
+    fi
+    annotate warning "rm-$name answered HTTP $code" "$COMPONENT $VERSION not declared there$hint"
     summary "- release manager $name: not declared, HTTP $code$hint"
     return 1
   fi
-  echo "::notice::$COMPONENT $VERSION declared to the $name release manager"
+  annotate notice "rm-$name declared" "$COMPONENT $VERSION declared to the $name release manager"
   summary "- release manager $name: declared"
 }
 
 summary "### Release managers: $COMPONENT $VERSION"
 if [[ -n $document_error ]]; then
-  echo "::warning::$document_error: $COMPONENT $VERSION is not declared"
+  annotate warning "nothing declared" "$document_error: $COMPONENT $VERSION is not declared"
   summary "- not declared: $document_error"
   [[ ${REQUIRED:-false} != true ]] || die "declaration failed: $document_error"
   exit 0

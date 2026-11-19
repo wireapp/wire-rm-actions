@@ -5,6 +5,8 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parent.parent
 LIB = ROOT / "scripts/lib.sh"
 
@@ -36,6 +38,28 @@ def test_warn_prints_a_warning_annotation_and_goes_on():
     assert result.returncode == 0
     assert result.stderr == "::warning::careful\n"
     assert result.stdout == "after\n"
+
+
+def test_annotate_prints_a_titled_annotation_on_stdout():
+    result = _bash('annotate warning "rm-staging skipped" "RM_STAGING_URL is not set"; echo after')
+    assert result.returncode == 0
+    assert result.stdout == "::warning title=rm-staging skipped::RM_STAGING_URL is not set\nafter\n"
+    assert result.stderr == ""
+
+
+@pytest.mark.parametrize("level", ["notice", "error"])
+def test_annotate_takes_the_level(level):
+    result = _bash(f'annotate {level} t m')
+    assert result.stdout == f"::{level} title=t::m\n"
+
+
+def test_annotate_escapes_what_would_end_or_start_a_command():
+    # Percent, CR and LF in both parts; colon and comma in the title, which is a
+    # property. The message keeps its colons and commas, readable as they are.
+    result = _bash("annotate warning $'a:b,c%\\n::error::x' $'line 1\\nline 2\\r::error::y 50%: done, ok'")
+    assert result.returncode == 0
+    assert result.stdout == "::warning title=a%3Ab%2Cc%25%0A%3A%3Aerror%3A%3Ax::line 1%0Aline 2%0D::error::y 50%25: done, ok\n"
+    assert result.stdout.count("\n") == 1
 
 
 def test_emit_writes_stdout_and_the_outputs_file(tmp_path: Path):
