@@ -54,7 +54,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
-      contents: write # read the release and its drafts (listed to push access only)
+      contents: read # the published release and its assets; a draft is listed to push access only, so it is not seen here
       id-token: write # OIDC token of the run: Quay and the release managers
     steps:
       - name: Check the confirmation
@@ -72,6 +72,8 @@ jobs:
             echo "Reason: ${REASON}"
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # With contents: read a draft is invisible: a version that is not published (a draft
+      # still to publish, or no release at all) stops here, with "found 0".
       - name: Resolve the published release
         id: release
         uses: wireapp/wire-rm-actions/draft-release@dev
@@ -80,14 +82,6 @@ jobs:
           version: ${{ inputs.version }}
           download: manifest-files
           asset-dir: ${{ runner.temp }}/release
-
-      - name: Refuse a release that is not published
-        if: steps.release.outputs.already-published != 'true'
-        run: |
-          echo "::error::v${VERSION} is still a draft: run the publish-release workflow, not a repair"
-          exit 1
-        env:
-          VERSION: ${{ inputs.version }}
 
       - name: Verify the assets against the manifest
         id: manifest
