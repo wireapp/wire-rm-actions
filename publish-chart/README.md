@@ -75,7 +75,10 @@ version is a no-op, another content a failure.
 1. Logs in to the registry when a user is given, the password on stdin.
 2. If the version is already in the registry: nothing is pushed, the existing
    digest is read back. With `chart-file`, the pulled package must have the
-   sha256 of the given one: another content fails the step.
+   sha256 of the given one: another content fails the step. Only the
+   registry's answer that the version is not there (`not found`, `manifest
+   unknown`, a 401, 403 or 404) leads to a push: a check that fails for any
+   other reason (network, 5xx, local error) fails the step without pushing.
 3. Otherwise, with `chart-path`: `helm dependency build` when `Chart.yaml` has
    dependencies, `helm package --version <version> --app-version <version>`,
    `helm push`. With `chart-file`: `helm push` of the file as is, after
