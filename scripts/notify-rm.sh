@@ -46,7 +46,9 @@
 # the release manager says which in its JSON message, quoted in the annotation:
 # 401, the credential was refused (OIDC: the repository $GITHUB_REPOSITORY, id
 # $GITHUB_REPOSITORY_ID, is not bound in oidc.repositories, or the audience is
-# wrong, or the token expired; ingest: the token is unknown or expired); 403,
+# wrong, or the token expired, or, when the answer carries a reason, the
+# repository is bound and the policy of the release manager refused the job;
+# ingest: the token is unknown or expired); 403,
 # the credential was accepted but the declaration refused (the component is not
 # among those the repository or token may declare, or a release manager rule).
 set -euo pipefail
@@ -254,8 +256,23 @@ declare_to() {
       [[ -z ${GITHUB_REPOSITORY_ID:-} ]] || repository="$repository (id ${GITHUB_REPOSITORY_ID})"
       message=$(jq -rs 'first(.[] | objects | .message? // empty) // empty' "$response" 2>/dev/null | tr -d '[:cntrl:]`' | head -c 200 || true)
       reason=$(jq -rs 'first(.[] | objects | .errors? | objects | .reason? // empty) // empty' "$response" 2>/dev/null | tr -d '[:cntrl:]`' | head -c 80 || true)
-      detail=${message:+" ($message${reason:+; reason: $reason})"}
-      if [[ $code == 401 && $credential == "OIDC token" ]]; then
+      # The reason once: the message of a refused OIDC token already ends with it.
+      detail=""
+      if [[ -n $message && ( -z $reason || $message == *"$reason"* ) ]]; then
+        detail=" ($message)"
+      elif [[ -n $message ]]; then
+        detail=" ($message; reason: $reason)"
+      elif [[ -n $reason ]]; then
+        detail=" (reason: $reason)"
+      fi
+      if [[ $code == 401 && $credential == "OIDC token" && -n $reason ]]; then
+        # A reason comes only for a repository the release manager knows: the
+        # binding is there, its policy refused the job, so binding is not the fix.
+        annotate warning "rm-$name credential refused (HTTP 401)" \
+          "the OIDC token of $repository was not accepted$detail: the repository is bound in the release manager, whose policy refused this job (its runner, its event or its workflow, see the reason); $not_declared"
+        summary "- release manager $name: not declared, HTTP 401, the OIDC token of $repository was not accepted${message:+ (\`$message\`)}." \
+          "  The repository is bound in the release manager: its policy refused this job (reason \`$reason\`), the runner, the event or the workflow of the job is not one it allows."
+      elif [[ $code == 401 && $credential == "OIDC token" ]]; then
         annotate warning "rm-$name credential refused (HTTP 401)" \
           "the OIDC token of $repository was not accepted$detail: the repository is not bound in the release manager (oidc.repositories: name, id, components), or the audience is not the one it expects, or the token expired; $not_declared"
         summary "- release manager $name: not declared, HTTP 401, the OIDC token of $repository was not accepted${message:+ (\`$message\`)}." \

@@ -153,8 +153,11 @@ that repository is bound to.
   warning. In OIDC mode, `token not accepted` without a reason means the
   release manager does not know the repository (`GITHUB_REPOSITORY`, with its
   `GITHUB_REPOSITORY_ID`): bind it in its `oidc.repositories` (name, id,
-  components) and redeploy it. With an ingest token, the token is unknown or
-  expired: issue a new one and update the secret.
+  components) and redeploy it. With a reason (`token not accepted:
+  event-not-allowed`, `runner-not-allowed`, `workflow-not-allowed`), the
+  repository is bound and the policy of the release manager refused the job:
+  the warning says so instead of naming the binding. With an ingest token, the
+  token is unknown or expired: issue a new one and update the secret.
 - **`403`**: the credential was accepted but the declaration refused: the
   component is not among those the repository (or the token) may declare
   (`token may feed only [...]; rejected components: [...]`), or a rule of the

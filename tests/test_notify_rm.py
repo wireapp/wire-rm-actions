@@ -721,7 +721,7 @@ def test_an_unknown_repository_is_a_refused_credential(rms, idp):
         (b'{"message": "token not accepted for this audience"}', " (token not accepted for this audience): "),
         (
             b'{"message": "token not accepted: event-not-allowed", "errors": {"reason": "event-not-allowed", "claims": {}}}',
-            " (token not accepted: event-not-allowed; reason: event-not-allowed): ",
+            " (token not accepted: event-not-allowed): ",
         ),
         (b"<html>401</html>", ": "),
         (b"", ": "),
@@ -737,6 +737,42 @@ def test_the_release_manager_message_is_quoted_when_there_is_one(rms, idp, body,
     (warning,) = _annotations(result)
     assert f"the OIDC token of this repository was not accepted{quoted}the repository" in warning
     assert "(id " not in warning
+
+
+def test_a_policy_refusal_does_not_ask_for_a_binding(rms, idp, tmp_path: Path):
+    # A reason comes only for a repository the release manager knows: the binding is
+    # there, its policy refused the job (here the event), so the fix is not to bind it.
+    staging, _ = rms
+    staging.status = 401
+    staging.body = b'{"message": "token not accepted: event-not-allowed", "errors": {"reason": "event-not-allowed", "claims": {}}}'
+    gh_summary = tmp_path / "summary.md"
+    result = _run(
+        RM_STAGING_URL=staging.url,
+        RM_STAGING_AUDIENCE="aud",
+        GITHUB_REPOSITORY="wireapp/wire-account",
+        GITHUB_STEP_SUMMARY=str(gh_summary),
+        **_oidc_env(idp),
+    )
+    assert result.returncode == 0, result.stderr
+    (warning,) = _annotations(result)
+    assert warning.startswith("::warning title=rm-staging credential refused (HTTP 401)::")
+    assert "the OIDC token of wireapp/wire-account was not accepted (token not accepted: event-not-allowed): " in warning
+    assert "the repository is bound in the release manager, whose policy refused this job" in warning
+    assert "is not bound" not in warning and "the audience" not in warning
+    assert warning.endswith("; my-component 4.24.3-20261005135125.gabcdef0 is not declared there")
+    text = gh_summary.read_text()
+    assert "its policy refused this job (reason `event-not-allowed`)" in text
+    assert "Bind the repository" not in text
+
+
+def test_a_reason_the_message_does_not_hold_is_quoted_after_it(rms, idp):
+    staging, _ = rms
+    staging.status = 401
+    staging.body = b'{"message": "token not accepted", "errors": {"reason": "runner-not-allowed"}}'
+    result = _run(RM_STAGING_URL=staging.url, RM_STAGING_AUDIENCE="aud", **_oidc_env(idp))
+    assert result.returncode == 0, result.stderr
+    (warning,) = _annotations(result)
+    assert " (token not accepted; reason: runner-not-allowed): the repository is bound" in warning
 
 
 def test_a_component_outside_the_binding_is_a_refused_declaration(rms, idp):
