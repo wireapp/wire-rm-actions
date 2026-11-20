@@ -154,7 +154,13 @@ while true; do
     echo "$repository:$version is not published yet: ${absent#Error: }"
     # An apiVersion v1 chart declares its dependencies in requirements.yaml.
     if grep -q '^dependencies:' "$chart_path/Chart.yaml" || [[ -f $chart_path/requirements.yaml ]]; then
-      helm dependency build "$chart_path"
+      # Only when one is missing: a caller that already ran helm dependency
+      # update has them all, and build would need their http(s) repositories
+      # added with helm repo add. helm package refuses a missing dependency.
+      dependencies=$(helm dependency list "$chart_path") || die "cannot list the dependencies of $chart_path"
+      if awk 'NR > 1 && NF && $NF != "ok" && $NF != "unpacked" {missing = 1} END {exit !missing}' <<<"$dependencies"; then
+        helm dependency build "$chart_path"
+      fi
     fi
     helm package "$chart_path" --version "$version" --app-version "${app_version:-$version}" -d "$work"
     helm push "$work/${name}-${version}.tgz" "$base" 2>&1 | tee "$work/push.log"

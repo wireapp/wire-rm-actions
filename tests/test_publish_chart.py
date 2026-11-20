@@ -21,7 +21,8 @@ VERSION = "4.24.3-20261005135125.gabcdef0"
 # the error every pull fails with instead, or with FAKE_PULL_ERROR_AFTER_PUSH=1
 # every pull once a push has been tried. Like helm, a pull fails when its
 # destination directory does not exist (helm 3.19 and 3.20 both print the digest,
-# then cannot write the file): the script creates it.
+# then cannot write the file): the script creates it. FAKE_DEPENDENCY_STATUS is
+# the status helm dependency list gives the one dependency (default missing).
 FAKE_HELM = r"""#!/usr/bin/env bash
 set -euo pipefail
 echo "$*" >>"$HELM_LOG"
@@ -48,6 +49,10 @@ case "$1 ${2:-}" in
     echo "Error: failed to perform \"FetchReference\" on source: ${2#oci://}:$4: not found" >&2
     exit 1
   fi
+  ;;
+"dependency list")
+  printf 'NAME\tVERSION\tREPOSITORY\tSTATUS\n'
+  printf 'redis\t1.0.0\thttps://charts.example.com\t%s\n' "${FAKE_DEPENDENCY_STATUS:-missing}"
   ;;
 "dependency build")
   echo "Saving 1 charts"
@@ -304,6 +309,37 @@ def test_requirements_dependencies_are_built(env):
     calls = _calls(env)
     build = calls.index(f"dependency build {env['CHART_PATH']}")
     assert build < next(i for i, c in enumerate(calls) if c.startswith("package "))
+
+
+def _add_dependency(env: dict[str, str], file: str) -> None:
+    chart = Path(env["CHART_PATH"])
+    dependency = "dependencies:\n  - name: redis\n    version: 1.0.0\n    repository: https://charts.example.com\n"
+    if file == "Chart.yaml":
+        (chart / file).write_text((chart / file).read_text() + dependency)
+    else:
+        (chart / file).write_text(dependency)
+
+
+@pytest.mark.parametrize("file", ["Chart.yaml", "requirements.yaml"])
+def test_dependency_of_another_version_is_built(env, file):
+    _add_dependency(env, file)
+    result = _run(env, FAKE_DEPENDENCY_STATUS="wrong version")
+    assert result.returncode == 0, result.stderr
+    assert f"dependency build {env['CHART_PATH']}" in _calls(env)
+
+
+# The caller ran helm dependency update: build would fail without the
+# repositories added with helm repo add.
+@pytest.mark.parametrize("file", ["Chart.yaml", "requirements.yaml"])
+@pytest.mark.parametrize("status", ["ok", "unpacked"])
+def test_fetched_dependencies_are_not_built_again(env, file, status):
+    _add_dependency(env, file)
+    result = _run(env, FAKE_DEPENDENCY_STATUS=status)
+    assert result.returncode == 0, result.stderr
+    calls = _calls(env)
+    assert f"dependency list {env['CHART_PATH']}" in calls
+    assert not any(c.startswith("dependency build") for c in calls)
+    assert any(c.startswith("package ") for c in calls)
 
 
 def test_chart_name_input_wins(env):
