@@ -48,7 +48,7 @@ version is a no-op, another content a failure.
 | `registry` | no | `quay.io` | OCI registry host. |
 | `channel` | no | `dev` | Registry channel: `dev` or `stable`. |
 | `expires-after` | no | `""` | Dev channel and `chart-path` only: Quay deletes the version after this delay (`90d`, or hours `h`, days `d`, weeks `w`). Empty keeps it. |
-| `attempts` | no | `1` | `chart-file` only: how many times the push is tried, 10 s apart (`1` does not retry). The presence check runs again before each attempt, as Quay has answered `500` on a manifest PUT that was committed. |
+| `attempts` | no | `1` | `chart-file` only: how many times the push is tried, 10 s apart (`1` does not retry). The presence check runs again before each attempt, as Quay has answered `500` on a manifest PUT that was committed. Only a failed push is tried again: a presence check that cannot tell whether the version is there fails the step at once. |
 | `username` | no | `""` | Registry user (a Quay robot account); empty when the job is already logged in ([quay-login](../quay-login/README.md)). |
 | `password` | no | `""` | Registry password or token, with `username`. |
 
@@ -75,7 +75,11 @@ version is a no-op, another content a failure.
 1. Logs in to the registry when a user is given, the password on stdin.
 2. If the version is already in the registry: nothing is pushed, the existing
    digest is read back. With `chart-file`, the pulled package must have the
-   sha256 of the given one: another content fails the step.
+   sha256 of the given one: another content fails the step. Only the
+   registry's answer to the manifest request that the version is not there
+   (`not found`, `manifest unknown`, `name unknown`, a 401, 403 or 404) leads
+   to a push: a check that fails for any other reason (network, 5xx, local
+   error, a blob that cannot be downloaded) fails the step without pushing.
 3. Otherwise, with `chart-path`: `helm dependency build` when `Chart.yaml` has
    dependencies, `helm package --version <version> --app-version <version>`,
    `helm push`. With `chart-file`: `helm push` of the file as is, after

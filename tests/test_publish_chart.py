@@ -17,10 +17,11 @@ VERSION = "4.24.3-20261005135125.gabcdef0"
 # makes the version already in the registry; FAKE_PUSH_DIGEST is the digest
 # the push prints (none when empty). The first FAKE_PUSH_FAILURES pushes fail
 # like a Quay 500; with FAKE_FAILED_PUSH_LANDS=1 the failed push has
-# committed, so the version is in the registry afterwards. Like helm, a pull
-# fails when its destination directory does not exist (helm 3.19 and 3.20 both
-# print the digest, then cannot write the file), which the script would read as
-# "not published".
+# committed, so the version is in the registry afterwards. FAKE_PULL_ERROR is
+# the error every pull fails with instead, or with FAKE_PULL_ERROR_AFTER_PUSH=1
+# every pull once a push has been tried. Like helm, a pull fails when its
+# destination directory does not exist (helm 3.19 and 3.20 both print the digest,
+# then cannot write the file): the script creates it.
 FAKE_HELM = r"""#!/usr/bin/env bash
 set -euo pipefail
 echo "$*" >>"$HELM_LOG"
@@ -33,7 +34,10 @@ case "$1 ${2:-}" in
   fi
   ;;
 "pull "*)
-  if [[ ${FAKE_PUBLISHED:-} == 1 || -f $HELM_LOG.landed ]]; then
+  if [[ -n ${FAKE_PULL_ERROR:-} && ( ${FAKE_PULL_ERROR_AFTER_PUSH:-} != 1 || -f $HELM_LOG.pushes ) ]]; then
+    echo "Error: $FAKE_PULL_ERROR" >&2
+    exit 1
+  elif [[ ${FAKE_PUBLISHED:-} == 1 || -f $HELM_LOG.landed ]]; then
     echo "Pulled: $2:$4"
     echo "Digest: sha256:existing"
     [[ -d $6 ]] || { echo "Error: open $6/chart.tgz: no such file or directory" >&2; exit 1; }
@@ -41,7 +45,7 @@ case "$1 ${2:-}" in
       cp "$FAKE_EXISTING_TGZ" "$6/"
     fi
   else
-    echo "Error: $2:$4: not found" >&2
+    echo "Error: failed to perform \"FetchReference\" on source: ${2#oci://}:$4: not found" >&2
     exit 1
   fi
   ;;
@@ -184,6 +188,55 @@ def test_published_version_is_not_overwritten(env):
     assert not any(c.startswith(("package ", "push ")) for c in calls)
     assert "already published, not overwritten" in result.stdout
     assert _outputs(env)["digest"] == "sha256:existing"
+
+
+STOPPING_PULL_ERRORS = [
+    "open /tmp/work/existing/my-component.tgz123: no such file or directory",
+    "open /tmp/work/existing/my-component.tgz123: permission denied",
+    'failed to perform "FetchReference" on source: GET "https://quay.io/v2/x/manifests/1": response status code 500: Internal Server Error',
+    'failed to perform "FetchReference" on source: GET "https://quay.io/v2/x/manifests/1": response status code 429: Too Many Requests',
+    'Get "https://quay.io/v2/": dial tcp: lookup quay.io: no such host',
+    "dial tcp 1.2.3.4:443: i/o timeout",
+    # The manifest is there, a blob is not served (helm 4.1 against a registry
+    # answering 403, then 404, on the blobs): the version is published.
+    'failed to perform "Fetch" on source: GET "https://quay.io/v2/x/blobs/sha256:0170": response status code 403: Forbidden',
+    'failed to perform "Fetch" on source: sha256:5d39: not found',
+]
+
+ABSENT_PULL_ERRORS = [
+    'failed to perform "FetchReference" on source: quay.io/wire/charts/dev/my-component:1: not found',
+    'failed to perform "FetchReference" on source: GET "https://quay.io/v2/x/manifests/1": response status code 401: unauthorized',
+    'failed to perform "FetchReference" on source: GET "https://quay.io/v2/x/manifests/1": response status code 403: Forbidden',
+    'failed to perform "FetchReference" on source: GET "https://quay.io/v2/x/manifests/1": response status code 404: Not Found: {"errors":[{"code":"MANIFEST_UNKNOWN","message":"manifest unknown"}]}',
+    'failed to perform "FetchReference" on source: manifest unknown: manifest unknown',
+    'failed to perform "FetchReference" on source: name unknown: repository name not known to registry',
+]
+
+
+def _chart_file_mode(tmp_path: Path) -> dict[str, str]:
+    return {"CHART_PATH": "", "VERSION": "", "CHART_FILE": str(_chart_file(tmp_path, "my-component", "1.41.5"))}
+
+
+@pytest.mark.parametrize("error", STOPPING_PULL_ERRORS)
+@pytest.mark.parametrize("mode", ["package", "chart-file"])
+def test_a_pull_that_fails_for_another_reason_stops_before_any_push(env, tmp_path, mode, error):
+    extra = _chart_file_mode(tmp_path) if mode == "chart-file" else {}
+    result = _run(env, FAKE_PULL_ERROR=error, **extra)
+    assert result.returncode == 1
+    assert "cannot tell whether" in result.stderr and error in result.stderr
+    assert not any(c.startswith(("package ", "push ")) for c in _calls(env))
+    assert Path(env["GITHUB_OUTPUT"]).read_text() == ""
+
+
+@pytest.mark.parametrize("error", ABSENT_PULL_ERRORS)
+@pytest.mark.parametrize("mode", ["package", "chart-file"])
+def test_an_absent_version_is_pushed(env, tmp_path, mode, error):
+    extra = _chart_file_mode(tmp_path) if mode == "chart-file" else {}
+    result = _run(env, FAKE_PULL_ERROR=error, **extra)
+    assert result.returncode == 0, result.stderr
+    assert _outputs(env)["status"] == "pushed"
+    assert any(c.startswith("push ") for c in _calls(env))
+    assert f"is not published yet: {error}" in result.stdout
 
 
 def test_dependencies_are_built(env):
@@ -412,6 +465,19 @@ def test_gives_up_after_the_last_attempt(env, tmp_path):
     assert result.returncode == 1
     assert "failed after 2 attempt(s)" in result.stderr
     assert len(_pushes(env)) == 2
+    assert Path(env["GITHUB_OUTPUT"]).read_text() == ""
+
+
+def test_a_presence_check_that_cannot_tell_stops_the_attempts(env, tmp_path):
+    tgz = _chart_file(tmp_path, "my-component", "1.41.5")
+    result = _run(
+        env, CHART_PATH="", VERSION="", CHART_FILE=str(tgz), ATTEMPTS="3", FAKE_PUSH_FAILURES="1",
+        FAKE_PULL_ERROR=STOPPING_PULL_ERRORS[2], FAKE_PULL_ERROR_AFTER_PUSH="1",
+    )
+    assert result.returncode == 1
+    assert "cannot tell whether" in result.stderr
+    kinds = [c.split()[0] for c in _calls(env) if c.startswith(("pull ", "push "))]
+    assert kinds == ["pull", "push", "pull"]
     assert Path(env["GITHUB_OUTPUT"]).read_text() == ""
 
 
