@@ -22,6 +22,11 @@ few fixes.
   published version.
 - **release-manifest** writes the manifest of a chart-only component
   (`chart-only: true`), such as a chart that repackages an upstream release.
+- **version** reads an anchor tag `vX.Y.Z-0`: it names the next release of a
+  branch where no release tag leads to it. Dev builds are `X.Y.Z-<ts>.g<sha7>`
+  until then, and release mode gives `X.Y.Z` or `X.Y.Z-<channel>.1`. When a GA
+  and a pre-release of a later version sit on the same commit, a dev build now
+  starts from the pre-release, as release mode does.
 - This repository releases itself the way it asks components to: the three
   publication files, a prepare-release and a publish-release workflow, and
   [docs/releasing.md](https://github.com/wireapp/wire-rm-actions/blob/dev/docs/releasing.md) as the written contract.

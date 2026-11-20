@@ -32,7 +32,7 @@ before the checkout, right after it, and once the version is known.
 |---|---|---|
 | `verify` | before the checkout | The branch exists on the repository. When it does not, the job summary names it and lists the `release/*` branches that exist, and the run fails. |
 | `resolve` | after `actions/checkout` at the branch, `fetch-depth: 0` | The checkout is at the tip of `origin/<branch>`; outputs its commit. |
-| `summary` | once the version is known | Writes the identity of the candidate to the job summary: version, channel, branch, commit, anchor tag, and the commits since the previous release. |
+| `summary` | once the version is known | Writes the identity of the candidate to the job summary: version, channel, branch, commit, latest release tag, and the commits since the previous release. |
 
 ## Technical reference
 
@@ -45,7 +45,7 @@ before the checkout, right after it, and once the version is known.
 | `repository`, `token` | verify | `owner/name` and a token with read access; default `github.repository` and `github.token`. |
 | `version`, `release-type` | summary | The version without the tag prefix, and its channel (`ga`, `alpha`, `beta`, `rc`). |
 | `source-sha` | summary | The full sha, the `sha` output of `resolve`. |
-| `base-tag`, `from-tag` | summary | The latest release tag reachable (the anchor) and the tag the changes are counted from. |
+| `base-tag`, `from-tag` | summary | The latest release tag reachable and the tag the changes are counted from. |
 | `tag-prefix` | summary | Shown before the version (default `v`). |
 | `note` | summary | A trailing line of the summary (default none). |
 | `commits` | summary | `true` (default) lists the commits `from-tag..source-sha`, `_No commits since <tag>._` when there is none; `false` leaves the list out. |
