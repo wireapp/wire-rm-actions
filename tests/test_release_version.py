@@ -155,6 +155,81 @@ def test_several_tags_on_the_anchor_commit_take_the_highest(repo):
     assert _ok(repo)["version"] == "1.42.1"
 
 
+@pytest.mark.parametrize(
+    ("release_type", "version", "kind"),
+    [("alpha", "1.50.0-alpha.1", "prerelease"), ("rc", "1.50.0-rc.1", "prerelease"), ("ga", "1.50.0", "ga")],
+)
+def test_anchor_names_the_next_release(repo, release_type, version, kind):
+    _git(repo, "tag", "v1.50.0-0")
+    _commit(repo, "fix")
+    _remote_branch(repo, "dev")
+    out = _ok(repo, RELEASE_TYPE=release_type)
+    assert out["version"] == version
+    assert out["kind"] == kind
+    assert out["latest-tag"] == "v1.50.0-0"
+    assert out["from-tag"] == "v1.41.4"
+
+
+@pytest.mark.parametrize("bump", ["minor", "major"])
+def test_anchor_refuses_another_bump(repo, bump):
+    _git(repo, "tag", "v1.50.0-0")
+    result = _run(repo, VERSION_BUMP=bump)
+    assert result.returncode == 1
+    assert "is invalid from the anchor 'v1.50.0-0'" in result.stderr
+
+
+def test_anchor_is_left_behind_by_its_first_release(repo):
+    _git(repo, "tag", "v1.50.0-0")
+    _git(repo, "tag", "v1.50.0-alpha.1")
+    assert _ok(repo, RELEASE_TYPE="alpha")["version"] == "1.50.0-alpha.2"
+    _commit(repo, "fix")
+    _git(repo, "tag", "v1.50.0")
+    _remote_branch(repo, "dev")
+    assert _ok(repo)["version"] == "1.50.1"
+
+
+def test_anchor_on_the_commit_of_an_older_release(repo):
+    _git(repo, "tag", "v1.41.5")
+    _git(repo, "tag", "v1.42.0-0")
+    _remote_branch(repo, "release/1.41")
+    assert _ok(repo, RELEASE_TYPE="alpha")["version"] == "1.42.0-alpha.1"
+    out = _ok(repo, SOURCE_BRANCH="release/1.41")
+    assert out["version"] == "1.41.6"
+    assert out["latest-tag"] == "v1.41.5"
+
+
+def test_release_line_skips_the_anchor_of_another_line(repo):
+    _git(repo, "tag", "v1.42.0-0")
+    _remote_branch(repo, "release/1.41")
+    out = _ok(repo, SOURCE_BRANCH="release/1.41")
+    assert out["version"] == "1.41.5"
+    assert out["latest-tag"] == "v1.41.4"
+
+
+def test_release_line_reads_its_own_anchor(repo):
+    _git(repo, "tag", "v1.41.40-0")
+    _remote_branch(repo, "release/1.41")
+    out = _ok(repo, SOURCE_BRANCH="release/1.41")
+    assert out["version"] == "1.41.40"
+    assert out["latest-tag"] == "v1.41.40-0"
+
+
+def test_anchor_alone_opens_a_history_without_release_tags(tmp_path):
+    repo = tmp_path / "legacy"
+    repo.mkdir()
+    subprocess.run(["git", "-C", str(repo), "init", "-q", "-b", "dev"], check=True)
+    for k, v in (("user.email", "test@example.com"), ("user.name", "Test"), ("commit.gpgsign", "false")):
+        _git(repo, "config", k, v)
+    _commit(repo, "first")
+    _git(repo, "tag", "5.0.80")
+    _git(repo, "tag", "v5.1.0-0")
+    _commit(repo, "next")
+    _remote_branch(repo, "release/5.1")
+    out = _ok(repo, SOURCE_BRANCH="release/5.1", RELEASE_TYPE="alpha")
+    assert out["version"] == "5.1.0-alpha.1"
+    assert out["from-tag"] == "v5.1.0-0"
+
+
 def test_legacy_prerelease_form_is_not_continued(repo):
     _git(repo, "tag", "v1.42.0-rc04")
     result = _run(repo, RELEASE_TYPE="rc")
