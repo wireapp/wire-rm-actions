@@ -23,11 +23,14 @@
 #   BUILD_CONTEXTS  name=path lines: extra named contexts (COPY --from=name)
 #   TARGET          Dockerfile stage to build (default the last one)
 #   PROVENANCE      SLSA provenance attestation: mode=max (default), mode=min,
-#                   true (= mode=min) or false
-#   SBOM            SBOM attestation: true (default) or false
+#                   true (= mode=min) or false (the default with EXPIRES_AFTER)
+#   SBOM            SBOM attestation: true (default) or false (the default
+#                   with EXPIRES_AFTER)
 #   EXPIRES_AFTER   Quay deletes the image after this delay (e.g. 90d): dev
 #                   builds only, never a release candidate (Quay expires the
-#                   manifest, which the promoted release tag shares)
+#                   manifest, which the promoted release tag shares). The
+#                   image is built without attestations, and asking for one
+#                   is refused (see below)
 # The registry login is done beforehand (docker login).
 #
 # Attestations ride with the image, as extra manifests of its index:
@@ -36,6 +39,13 @@
 #   mode=max    true   image + provenance (full build inputs) + SBOM   (default)
 #   mode=min    true   image + provenance (digest-only) + SBOM
 #   false       false  the bare image, a single manifest when single-platform
+#
+# An image with attestations never expires on Quay: for an index, Quay applies
+# quay.expires-after only when every manifest of the index carries it, and
+# buildx gives the attestation manifest neither labels nor annotations; the
+# annotations of the index itself are not read (checked on quay.io: of three
+# images pushed with a 1h expiry, only the bare one got an expiration). Hence
+# EXPIRES_AFTER builds the bare image.
 #
 # Prints image=, tag=, digest=, ref= and status= (pushed | present), and
 # appends them to $GITHUB_OUTPUT when set.
@@ -52,8 +62,8 @@ tag=${TAG:-$VERSION}
 context=${CONTEXT:-.}
 revision=${REVISION:-${GITHUB_SHA:-}}
 platforms=${PLATFORMS:-linux/amd64}
-provenance=${PROVENANCE:-mode=max}
-sbom=${SBOM:-true}
+provenance=${PROVENANCE:-}
+sbom=${SBOM:-}
 expires_after=${EXPIRES_AFTER:-}
 created=${CREATED:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}
 
@@ -63,12 +73,20 @@ created=${CREATED:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}
 [[ -d $context ]] || die "CONTEXT '$context' is not a directory"
 [[ -z $revision || $revision =~ ^[0-9a-f]{40}$ ]] || die "REVISION '$revision' is not a full commit SHA"
 [[ $platforms =~ ^[a-z0-9/_.-]+(,[a-z0-9/_.-]+)*$ ]] || die "PLATFORMS '$platforms' is not a comma-separated list of platforms"
-[[ $provenance =~ ^(true|false|mode=(min|max))$ ]] || die "PROVENANCE must be mode=max, mode=min, true or false, not '$provenance'"
-[[ $sbom =~ ^(true|false)$ ]] || die "SBOM must be true or false, not '$sbom'"
+[[ -z $provenance || $provenance =~ ^(true|false|mode=(min|max))$ ]] || die "PROVENANCE must be mode=max, mode=min, true or false, not '$provenance'"
+[[ -z $sbom || $sbom =~ ^(true|false)$ ]] || die "SBOM must be true or false, not '$sbom'"
 [[ $created =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] || die "CREATED must be YYYY-MM-DDTHH:MM:SSZ, not '$created'"
 if [[ -n $expires_after ]]; then
   [[ $expires_after =~ ^[1-9][0-9]*[hdw]$ ]] || die "EXPIRES_AFTER must be a number of hours, days or weeks (e.g. 90d), not '$expires_after'"
+  # An image that expires is the bare image; an attestation asked for with it
+  # would be an image that silently never expires.
+  [[ ${provenance:-false} == false && ${sbom:-false} == false ]] ||
+    die "EXPIRES_AFTER cannot go with PROVENANCE or SBOM: Quay never expires an image that carries attestations; set both to false, or drop EXPIRES_AFTER"
+  provenance=false
+  sbom=false
 fi
+provenance=${provenance:-mode=max}
+sbom=${sbom:-true}
 
 args=(--file "$DOCKERFILE" --platform "$platforms" --tag "${IMAGE}:${tag}")
 while IFS= read -r line; do
@@ -111,11 +129,9 @@ done <<<"${LABELS:-}"
 for kv in "${oci[@]}"; do
   args+=(--label "$kv" --annotation "${levels}:$kv")
 done
-# Quay reads the expiry from the image config label of a plain manifest, and
-# only from the index annotation when the push is an index.
-if [[ -n $expires_after ]]; then
-  args+=(--label "quay.expires-after=$expires_after" --annotation "${levels}:quay.expires-after=$expires_after")
-fi
+# A label only: Quay reads it from the image config, and for the index of a
+# multi-platform image from the config of each of its images.
+[[ -n $expires_after ]] && args+=(--label "quay.expires-after=$expires_after")
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
@@ -129,6 +145,8 @@ if digest=$(registry_digest "$ref") && [[ $digest == sha256:* ]]; then
   echo "::notice::$ref already pushed, not rebuilt nor overwritten"
   status=present
 else
+  [[ -z $expires_after ]] ||
+    echo "$ref expires after $expires_after: built without provenance nor SBOM attestation, Quay never expires an image that carries one"
   docker buildx build "${args[@]}" "--provenance=$provenance" "--sbom=$sbom" \
     --metadata-file "$work/metadata.json" --push "$context"
   built=$(sed -n 's/.*"containerimage\.digest": *"\(sha256:[0-9a-f]*\)".*/\1/p' "$work/metadata.json" | head -n1)

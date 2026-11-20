@@ -194,20 +194,34 @@ def test_provenance_mode_min(env):
     assert {"--provenance=mode=min", "--sbom=true"} <= set(_build(env))
 
 
-def test_expires_after_is_a_label_and_an_index_annotation(env):
-    result = _run(env, EXPIRES_AFTER="90d")
+# Quay never expires an image that carries attestations (checked on quay.io, also
+# with the expiry as an annotation of the index): an image that expires is the bare one.
+@pytest.mark.parametrize("extra", [{}, {"PROVENANCE": "false", "SBOM": "false"}, {"PROVENANCE": "false"}], ids=["default", "off", "half"])
+def test_expires_after_is_a_label_on_an_image_without_attestations(env, extra):
+    result = _run(env, EXPIRES_AFTER="90d", **extra)
     assert result.returncode == 0, result.stderr
     build = _build(env)
     assert "quay.expires-after=90d" in _pairs(build, "--label")
-    assert "index,manifest:quay.expires-after=90d" in _pairs(build, "--annotation")
+    assert not any("expires" in a for a in _pairs(build, "--annotation"))
+    assert {"--provenance=false", "--sbom=false"} <= set(build)
+    assert all(a.startswith("manifest:") for a in _pairs(build, "--annotation"))
+    assert "built without provenance nor SBOM attestation" in result.stdout
 
 
-def test_expires_after_without_an_index_is_a_manifest_annotation(env):
-    result = _run(env, EXPIRES_AFTER="90d", PROVENANCE="false", SBOM="false")
+def test_expires_after_on_a_multi_platform_image_keeps_the_index_annotations(env):
+    result = _run(env, EXPIRES_AFTER="90d", PLATFORMS="linux/amd64,linux/arm64")
     assert result.returncode == 0, result.stderr
     build = _build(env)
     assert "quay.expires-after=90d" in _pairs(build, "--label")
-    assert "manifest:quay.expires-after=90d" in _pairs(build, "--annotation")
+    assert {"--provenance=false", "--sbom=false"} <= set(build)
+    assert all(a.startswith("index,manifest:org.opencontainers.") for a in _pairs(build, "--annotation"))
+
+
+def test_no_expiry_keeps_the_attestations_and_says_nothing(env):
+    result = _run(env)
+    assert result.returncode == 0, result.stderr
+    assert {"--provenance=mode=max", "--sbom=true"} <= set(_build(env))
+    assert "built without" not in result.stdout
 
 
 def test_created_defaults_to_now(env):
@@ -269,6 +283,10 @@ def test_more_labels_are_label_and_annotation(env):
         ({"PLATFORMS": "linux/amd64, linux/arm64"}, "is not a comma-separated list"),
         ({"PROVENANCE": "max"}, "PROVENANCE must be"),
         ({"SBOM": "yes"}, "SBOM must be"),
+        ({"EXPIRES_AFTER": "90d", "PROVENANCE": "mode=max"}, "EXPIRES_AFTER cannot go with PROVENANCE or SBOM"),
+        ({"EXPIRES_AFTER": "90d", "PROVENANCE": "true"}, "EXPIRES_AFTER cannot go with PROVENANCE or SBOM"),
+        ({"EXPIRES_AFTER": "90d", "SBOM": "true"}, "EXPIRES_AFTER cannot go with PROVENANCE or SBOM"),
+        ({"EXPIRES_AFTER": "90d", "PROVENANCE": "false", "SBOM": "true"}, "EXPIRES_AFTER cannot go with PROVENANCE or SBOM"),
     ],
 )
 def test_bad_input_fails_before_any_call(env, extra, message):
