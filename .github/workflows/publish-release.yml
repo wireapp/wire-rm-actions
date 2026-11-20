@@ -1,0 +1,155 @@
+# yamllint disable rule:truthy
+# Publishes a release of this repository (docs/releasing.md): once a release manager
+# approves the release-publication environment, the draft created by
+# prepare-release is checked against its source commit (publication files,
+# pinned refs, releasable branch) and published, which creates the tag. Nothing
+# is built or promoted: this repository ships no image and no chart, its
+# release is the tagged commit and the GitHub Release. Called by
+# prepare-release.yml; dispatched by hand with the version to publish a draft
+# whose run is gone.
+name: Publish release
+
+run-name: Publish v${{ inputs.version }} (by @${{ github.actor }})
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: The version prepare-release computed, without v.
+        type: string
+        required: true
+      release_id:
+        description: Numeric id of the draft release; empty finds it by tag.
+        type: string
+        default: ""
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Recovery: the version to publish (X.Y.Z or X.Y.Z-<channel>.N), its draft found by tag"
+        type: string
+        required: true
+
+permissions: {}
+
+jobs:
+  publish:
+    name: Publish
+    # Required reviewers: the release managers (repository settings).
+    environment:
+      name: release-publication
+      url: ${{ github.server_url }}/${{ github.repository }}/releases/tag/v${{ inputs.version }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: publish-release-${{ inputs.version }}
+      cancel-in-progress: false
+    permissions:
+      contents: write # publish the draft release
+    steps:
+      # The actions of this commit, before anything else runs.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Validate the inputs
+        id: inputs
+        uses: ./release-inputs
+        with:
+          mode: publish
+          version: ${{ inputs.version }}
+          release-id: ${{ inputs.release_id }}
+
+      - name: Resolve the draft release and download its assets
+        id: draft
+        uses: ./draft-release
+        with:
+          mode: resolve
+          version: ${{ inputs.version }}
+          release-id: ${{ inputs.release_id }}
+          download: all
+          asset-dir: ${{ runner.temp }}/candidate
+
+      # The source commit: its publication files, its actions, and the branches holding it.
+      - name: Check out the source commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.draft.outputs.target-commitish }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Require a releasable branch
+        id: source
+        env:
+          SHA: ${{ steps.draft.outputs.target-commitish }}
+        run: |
+          set -euo pipefail
+          branch=$(git branch -r --contains "$SHA" --format='%(refname:short)' \
+            | grep -E '^origin/(dev|release/[0-9]+\.[0-9]+)$' | sed 's#^origin/##' | sort | head -n1 || true)
+          [[ -n "$branch" ]] || { echo "::error::${SHA} is on no releasable branch (dev, release/X.Y): the candidate is stale, prepare it again"; exit 1; }
+          echo "Source commit ${SHA} is on ${branch}."
+          echo "source-ref=${branch}" >>"$GITHUB_OUTPUT"
+
+      - name: Require the pinned refs of the release
+        env:
+          TAG: v${{ inputs.version }}
+        run: scripts/check-release-ref.sh "$TAG"
+
+      # The documents again, from the source commit: the assets of the draft must be these.
+      - name: Gather the release documents of the source commit
+        id: documents
+        uses: ./release-documents
+        with:
+          component: wire-rm-actions
+          version: ${{ inputs.version }}
+          release-type: ${{ steps.inputs.outputs.release-type }}
+          out-dir: ${{ runner.temp }}/source
+
+      - name: Check the compatibility file
+        uses: ./compatibility
+        with:
+          output-dir: ${{ runner.temp }}/compatibility
+
+      - name: Verify the draft against the source commit
+        env:
+          ASSETS: ${{ steps.draft.outputs.asset-dir }}
+          SOURCE: ${{ runner.temp }}/source
+        run: |
+          set -euo pipefail
+          cp publication/compatibility.yaml "$SOURCE/compatibility.yaml"
+          for f in release-note.md release-declaration.json compatibility.yaml; do
+            [[ -f "$ASSETS/$f" ]] || { echo "::error::the draft has no asset $f"; exit 1; }
+            if ! cmp -s "$ASSETS/$f" "$SOURCE/$f"; then
+              echo "::error::asset $f differs from the source commit: the candidate is stale, prepare it again"
+              exit 1
+            fi
+            echo "$f matches the source commit"
+          done
+
+      # The last write: the tag is born here, on the source commit.
+      - name: Publish the draft release
+        id: publish
+        uses: ./draft-release
+        with:
+          mode: publish
+          version: ${{ inputs.version }}
+          release-id: ${{ steps.draft.outputs.id }}
+          expected-commit: ${{ steps.draft.outputs.target-commitish }}
+          source-ref: ${{ steps.source.outputs.source-ref }}
+          latest-branches: ^dev$
+
+      - name: Summary
+        env:
+          TAG: v${{ inputs.version }}
+          URL: ${{ steps.publish.outputs.url }}
+          SHA: ${{ steps.draft.outputs.target-commitish }}
+          LATEST: ${{ steps.publish.outputs.make-latest }}
+        run: |
+          set -euo pipefail
+          {
+            echo
+            echo "[\`${TAG}\`](${URL}) published at \`${SHA}\` (latest: ${LATEST})."
+            echo
+            echo '```yaml'
+            echo "uses: wireapp/wire-rm-actions/<action>@${SHA} # ${TAG}"
+            echo '```'
+          } >>"$GITHUB_STEP_SUMMARY"
