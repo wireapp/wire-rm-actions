@@ -152,7 +152,8 @@ while true; do
     attempt=$((attempt + 1))
   else
     echo "$repository:$version is not published yet: ${absent#Error: }"
-    if grep -q '^dependencies:' "$chart_path/Chart.yaml"; then
+    # An apiVersion v1 chart declares its dependencies in requirements.yaml.
+    if grep -q '^dependencies:' "$chart_path/Chart.yaml" || [[ -f $chart_path/requirements.yaml ]]; then
       helm dependency build "$chart_path"
     fi
     helm package "$chart_path" --version "$version" --app-version "${app_version:-$version}" -d "$work"

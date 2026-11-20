@@ -293,6 +293,19 @@ def test_dependencies_are_built(env):
     assert build < next(i for i, c in enumerate(calls) if c.startswith("package "))
 
 
+# An apiVersion v1 chart declares its dependencies in requirements.yaml, not in
+# Chart.yaml: helm package refuses it when they are not in charts/.
+def test_requirements_dependencies_are_built(env):
+    (Path(env["CHART_PATH"]) / "requirements.yaml").write_text(
+        "dependencies:\n  - name: redis\n    version: 1.0.0\n    repository: file://../redis\n"
+    )
+    result = _run(env)
+    assert result.returncode == 0, result.stderr
+    calls = _calls(env)
+    build = calls.index(f"dependency build {env['CHART_PATH']}")
+    assert build < next(i for i, c in enumerate(calls) if c.startswith("package "))
+
+
 def test_chart_name_input_wins(env):
     chart_yaml = Path(env["CHART_PATH"]) / "Chart.yaml"
     chart_yaml.write_text(chart_yaml.read_text().replace("my-component", "renamed"))

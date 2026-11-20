@@ -85,8 +85,8 @@ version is a no-op, another content a failure.
    to a push: a check that fails for any other reason (network, 5xx, local
    error, a blob that cannot be downloaded) fails the step without pushing.
 3. Otherwise, with `chart-path`: `helm dependency build` when `Chart.yaml` has
-   dependencies, `helm package --version <version> --app-version <version>`,
-   `helm push`. With `chart-file`: `helm push` of the file as is, after
+   dependencies or the chart has a `requirements.yaml` (`apiVersion: v1`),
+   `helm package --version <version> --app-version <version>`, `helm push`. With `chart-file`: `helm push` of the file as is, after
    checking its name, its `version == appVersion` and, when given, `version`
    and `chart-name`. When the push fails and `attempts` allows another, the
    step waits 10 s and starts again from point 2: a chart that landed despite
