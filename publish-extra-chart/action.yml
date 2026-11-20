@@ -1,0 +1,80 @@
+name: Wire publish extra chart
+description: >-
+  Package a chart directory that repackages an upstream release (an extra
+  chart, such as the wrappers of wireapp/helm-charts) with its own version and
+  appVersion, and push it to oci://<registry>/wire/charts/<channel>/<name>,
+  never overwriting a published version. Wire charts use publish-chart, where
+  appVersion is always the chart version (ADR-0018).
+inputs:
+  chart-path:
+    description: Path of the chart directory to package.
+    required: true
+  version:
+    description: The chart version, from the version action.
+    required: true
+  app-version:
+    description: >-
+      The appVersion of the package: the upstream release the chart packages,
+      usually read from its Chart.yaml.
+    required: true
+  chart-name:
+    description: Chart name; default the Chart.yaml name.
+    default: ""
+  registry:
+    description: OCI registry host.
+    default: quay.io
+  channel:
+    description: Registry channel (dev, stable).
+    default: dev
+  expires-after:
+    description: >-
+      Dev channel only: Quay deletes the version after this delay (e.g. 90d,
+      hours h, days d or weeks w); empty keeps it. Needs oras on PATH
+      (oras-project/setup-oras).
+    default: ""
+  username:
+    description: Registry user (a quay robot account); empty when the job is already logged in.
+    default: ""
+  password:
+    description: Registry password or token, with username.
+    default: ""
+outputs:
+  repository:
+    description: oci://<registry>/wire/charts/<channel>/<name>
+    value: ${{ steps.push.outputs.repository }}
+  digest:
+    description: sha256 digest of the chart.
+    value: ${{ steps.push.outputs.digest }}
+  status:
+    description: pushed, or present when the version was already in the registry.
+    value: ${{ steps.push.outputs.status }}
+runs:
+  using: composite
+  steps:
+    - if: inputs.username != ''
+      shell: bash
+      env:
+        REGISTRY: ${{ inputs.registry }}
+        REGISTRY_USER: ${{ inputs.username }}
+        REGISTRY_PASSWORD: ${{ inputs.password }}
+      run: printf '%s' "$REGISTRY_PASSWORD" | helm registry login "$REGISTRY" -u "$REGISTRY_USER" --password-stdin
+    - id: push
+      shell: bash
+      env:
+        CHART_PATH: ${{ inputs.chart-path }}
+        CHART_NAME: ${{ inputs.chart-name }}
+        VERSION: ${{ inputs.version }}
+        APP_VERSION: ${{ inputs.app-version }}
+        REGISTRY: ${{ inputs.registry }}
+        CHANNEL: ${{ inputs.channel }}
+        EXPIRES_AFTER: ${{ inputs.expires-after }}
+      run: |
+        [[ -n $APP_VERSION ]] || { echo "::error::app-version is required: the upstream release the chart packages"; exit 1; }
+        "$GITHUB_ACTION_PATH/../scripts/publish-chart.sh"
+    # Same as publish-chart: the login is removed even on failure, when this
+    # action made it.
+    - if: always() && inputs.username != ''
+      shell: bash
+      env:
+        REGISTRY: ${{ inputs.registry }}
+      run: helm registry logout "$REGISTRY" || true
