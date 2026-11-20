@@ -39,7 +39,8 @@ inputs:
       chart-file only: how many times to try the push (10 s apart), the
       presence check running again before each one, since a failed push
       (Quay answers 500 on a manifest that was committed) may have landed. 1
-      does not retry.
+      does not retry. Only a failed push is tried again: a presence check that
+      fails for another reason than an absent version fails the step at once.
     default: "1"
   username:
     description: Registry user (a quay robot account); empty when the job is already logged in.
