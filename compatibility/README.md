@@ -14,7 +14,8 @@
 [promote-image](../promote-image/README.md) ·
 [ci-gate](../ci-gate/README.md) ·
 [draft-release](../draft-release/README.md) ·
-[publish-chart-s3](../publish-chart-s3/README.md)
+[publish-chart-s3](../publish-chart-s3/README.md) ·
+[wire-builds-bump](../wire-builds-bump/README.md)
 
 # compatibility
 

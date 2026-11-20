@@ -42,8 +42,8 @@ The second line, when there is one, is empty. Merge commits pass. The
 
 ## Release
 
-1. `make release-prep VERSION=vX.Y.Z`: `dev-build.yml` calls the actions at
-   `@vX.Y.Z`. Commit it through a pull request.
+1. `make release-prep VERSION=vX.Y.Z`: `dev-build.yml` and the templates
+   call the actions at `@vX.Y.Z`. Commit it through a pull request.
 2. Once merged, tag the merge commit on `dev` with a signed annotated tag
    (`git tag -s vX.Y.Z -m vX.Y.Z`, SSH key listed in
    `.github/allowed_signers`) and push the tag.

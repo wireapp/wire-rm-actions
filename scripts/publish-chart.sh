@@ -15,6 +15,9 @@
 # runs again before every push and a chart that landed meanwhile is a no-op
 # (or a failure when its content differs), never a second push. Only a failed
 # push is tried again: a presence check that cannot tell stops at once.
+# After a push in chart file mode the chart is pulled back: it must have the
+# sha256 of the given .tgz (so its version and appVersion) and the digest the
+# push printed, or the step fails before anything else is declared.
 #
 # Environment: CHART_PATH or CHART_FILE (one of them); VERSION (required with
 # CHART_PATH, checked against the package with CHART_FILE); CHART_NAME (default:
@@ -168,6 +171,18 @@ while true; do
 done
 
 [[ $digest == sha256:* ]] || die "no digest for $repository:$version"
+
+if [[ -n $chart_file && $status == pushed ]]; then
+  mkdir -p "$work/readback"
+  helm pull "$repository" --version "$version" -d "$work/readback" >"$work/readback.log" 2>&1 \
+    || die "$repository:$version was pushed but cannot be pulled back"
+  [[ $(sha256_of "$work/readback/${name}-${version}.tgz") == "$(sha256_of "$chart_file")" ]] \
+    || die "$repository:$version pulled back with another content than $chart_file"
+  readback_digest=$(digest_of "$work/readback.log")
+  [[ $readback_digest == "$digest" ]] \
+    || die "$repository:$version pulled back with digest '$readback_digest', the push printed $digest"
+  echo "$repository:$version read back: same chart, digest $digest"
+fi
 
 emit repository "$repository"
 emit digest "$digest"
