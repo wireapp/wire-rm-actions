@@ -13,7 +13,8 @@
 # With ATTEMPTS > 1 (chart file mode only) a failed push is tried again: Quay
 # has answered 500 on a manifest PUT that had committed, so the presence check
 # runs again before every push and a chart that landed meanwhile is a no-op
-# (or a failure when its content differs), never a second push.
+# (or a failure when its content differs), never a second push. Only a failed
+# push is tried again: a presence check that cannot tell stops at once.
 #
 # Environment: CHART_PATH or CHART_FILE (one of them); VERSION (required with
 # CHART_PATH, checked against the package with CHART_FILE); CHART_NAME (default:
@@ -98,13 +99,16 @@ digest_of() {
   sed -n 's/^Digest: *//p' "$1" | tail -n1
 }
 
-# Only the registry's answer that the version is not there makes it absent:
-# helm's "not found", the OCI error messages, or a 401, 403 or 404 status. Any
-# other failure of helm pull (a local error such as a file it cannot write, the
-# network, a 5xx) stops here: taking it for absent would push over a published
-# version. A missing repository answers 401/403, and so does an invalid robot:
-# in both cases the push fails the same way and overwrites nothing.
-readonly absent_re=': not found|manifest unknown|name unknown|response status code 40[134]'
+# Only the registry's answer to the manifest request ("FetchReference" in helm's
+# error) that the version is not there makes it absent: helm's "not found", the
+# OCI error messages, or a 401, 403 or 404 status. Any other failure of helm
+# pull (a local error such as a file it cannot write, the network, a 5xx) stops
+# here: taking it for absent would push over a published version. So does a
+# 403 or 404 on a blob ("Fetch"): the manifest is there, and Quay serves the
+# blobs from another host (a CDN) than the one the push goes to. A missing
+# repository answers 401/403, and so does an invalid robot: in both cases the
+# push fails the same way and overwrites nothing.
+readonly absent_re='"FetchReference" on source: .*(: not found|manifest unknown|name unknown|response status code 40[134])'
 
 status=pushed
 digest=
@@ -123,10 +127,11 @@ while true; do
     digest=$(digest_of "$work/pull.log")
     status=present
     break
-  elif ! grep -qiE "$absent_re" "$work/pull.log"; then
+  elif ! absent=$(grep -iE -m1 "$absent_re" "$work/pull.log"); then
     cat "$work/pull.log" >&2
     die "cannot tell whether $repository:$version is published: helm pull failed, and not because the version is absent"
   elif [[ -n $chart_file ]]; then
+    echo "$repository:$version is not published yet: ${absent#Error: }"
     if helm push "$chart_file" "$base" 2>&1 | tee "$work/push.log"; then
       digest=$(digest_of "$work/push.log")
       break
@@ -136,6 +141,7 @@ while true; do
     sleep "$retry_delay"
     attempt=$((attempt + 1))
   else
+    echo "$repository:$version is not published yet: ${absent#Error: }"
     if grep -q '^dependencies:' "$chart_path/Chart.yaml"; then
       helm dependency build "$chart_path"
     fi
