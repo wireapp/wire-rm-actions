@@ -55,16 +55,21 @@ inputs:
   provenance:
     description: >-
       SLSA provenance attestation pushed with the image: mode=max, mode=min,
-      true (= mode=min) or false.
-    default: mode=max
+      true (= mode=min) or false. Empty: mode=max, or false with
+      expires-after.
+    default: ""
   sbom:
-    description: SBOM attestation pushed with the image, true or false.
-    default: "true"
+    description: >-
+      SBOM attestation pushed with the image, true or false. Empty: true, or
+      false with expires-after.
+    default: ""
   expires-after:
     description: >-
       Dev builds only: Quay deletes the image after this delay (e.g. 90d,
       hours h, days d or weeks w); empty keeps it. Never on a release
-      candidate: the promoted release tag shares its manifest.
+      candidate: the promoted release tag shares its manifest. The image is
+      built without provenance nor SBOM attestation, which Quay would never
+      expire: asking for one with expires-after fails the step.
     default: ""
   username:
     description: >-

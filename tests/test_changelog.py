@@ -1,6 +1,6 @@
 """The release changelog written by scripts/changelog.sh.
 
-The expected text is what generate-changelog 1.8.0 (the release changelog script of the components) writes for the same commits.
+The expected text is what generate-changelog 1.8.0 (the release changelog script of the components) writes for the same commits, but for the "!" of a conventional breaking change, which goes to Breaking Changes here.
 """
 
 from __future__ import annotations
@@ -28,6 +28,7 @@ SUBJECTS = [
     "fix: ",
     "docs: readme",
     "fix(api): handle 404, again: retry",
+    "feat(api)!: drop v1 search",
 ]
 
 
@@ -80,12 +81,14 @@ def _link(repo: Path, subject: str) -> str:
 def test_release_format(repo: Path) -> None:
     text, outputs = _changelog(repo, VERSION="1.1.0", REPO_URL=URL)
     link = lambda s: _link(repo, s)  # noqa: E731
-    assert outputs == {"file": "CHANGELOG.md", "count": "7"}
+    assert outputs == {"file": "CHANGELOG.md", "count": "8"}
     assert text == "\n".join([
         f"#### 1.1.0 ({DATE})",
         "",
         "##### Breaking Changes",
         "",
+        f"* **api:**  drop v1 search {link('drop v1 search')}",
+        f"*  faster boot {link('faster boot')}",
         f"*  drop legacy endpoint [breaking] {link('drop legacy endpoint')}",
         "",
         "##### New Features",
@@ -100,18 +103,60 @@ def test_release_format(repo: Path) -> None:
         f"* **api:**  handle 404, again: retry {link('handle 404')}",
         f"*  crash on empty team ([#42]({URL}/pull/42)) {link('crash on empty team')}",
         "",
-        "##### Other Changes",
-        "",
-        f"*  faster boot {link('faster boot')}",
-        "",
         "",
     ])
 
 
 def test_without_heading_nor_links(repo: Path) -> None:
-    text, _ = _changelog(repo, HEADING="false", EXCLUDE="feat fix chore docs runfix breaking")
-    sha = _git(repo, "log", "--format=%H", "--grep=faster boot", "-1")
-    assert text == f"##### Other Changes\n\n*  faster boot ({sha[:8]})\n\n"
+    text, _ = _changelog(repo, HEADING="false", EXCLUDE="feat fix chore docs runfix")
+    sha = lambda s: _git(repo, "log", "--format=%H", "--fixed-strings", f"--grep={s}", "-1")[:8]  # noqa: E731
+    assert text == "\n".join([
+        "##### Breaking Changes",
+        "",
+        f"* **api:**  drop v1 search ({sha('drop v1 search')})",
+        f"*  faster boot ({sha('faster boot')})",
+        f"*  drop legacy endpoint [breaking] ({sha('drop legacy endpoint')})",
+        "",
+        "",
+    ])
+
+
+@pytest.mark.parametrize(
+    ("subject", "entry"),
+    [
+        ("feat!: drop the v1 api", "*  drop the v1 api"),
+        ("fix(api)!: rename the search field", "* **api:**  rename the search field"),
+        ("Feat(API)!: upper case", "* **API:**  upper case"),
+        ("refactor!: tidy [breaking]", "*  tidy [breaking]"),
+    ],
+)
+def test_a_bang_type_is_a_breaking_change(tmp_path: Path, subject: str, entry: str) -> None:
+    path = tmp_path / "bang"
+    path.mkdir()
+    _git(path, "init", "-q", "-b", "dev")
+    for k, v in (("user.email", "test@example.com"), ("user.name", "Test"), ("commit.gpgsign", "false")):
+        _git(path, "config", k, v)
+    _git(path, "commit", "-q", "--allow-empty", "-m", "chore: start")
+    _git(path, "tag", "v1.0.0")
+    _git(path, "commit", "-q", "--allow-empty", "-m", subject)
+    text, outputs = _changelog(path, HEADING="false", EXCLUDE="refactor")
+    sha = _git(path, "log", "--format=%H", "-1")
+    assert outputs["count"] == "1"
+    assert text == f"##### Breaking Changes\n\n{entry} ({sha[:8]})\n\n"
+
+
+@pytest.mark.parametrize("subject", ["feat !: space", "feat(api) !: space", "!: no type", "feat: a! b", "feat(x!): bang in scope"])
+def test_a_bang_elsewhere_is_not_a_breaking_change(tmp_path: Path, subject: str) -> None:
+    path = tmp_path / "nobang"
+    path.mkdir()
+    _git(path, "init", "-q", "-b", "dev")
+    for k, v in (("user.email", "test@example.com"), ("user.name", "Test"), ("commit.gpgsign", "false")):
+        _git(path, "config", k, v)
+    _git(path, "commit", "-q", "--allow-empty", "-m", "chore: start")
+    _git(path, "tag", "v1.0.0")
+    _git(path, "commit", "-q", "--allow-empty", "-m", subject)
+    text, _ = _changelog(path, HEADING="false", EXCLUDE="")
+    assert "Breaking Changes" not in text
 
 
 def test_no_exclusion_and_version_less_heading(repo: Path) -> None:
@@ -120,7 +165,7 @@ def test_no_exclusion_and_version_less_heading(repo: Path) -> None:
     assert "##### Chores" in text and "##### Documentation Changes" in text
     # runfix is no conventional type: it lands in Other Changes.
     assert "*  quick fix (" in text.split("##### Other Changes")[1]
-    assert outputs["count"] == "10"
+    assert outputs["count"] == "11"
 
 
 def test_empty_range(repo: Path) -> None:
@@ -141,7 +186,7 @@ def test_github_output(repo: Path, tmp_path: Path) -> None:
     gh = tmp_path / "gh_output"
     result = _run(repo, FROM_REF="v1.0.0", GITHUB_OUTPUT=str(gh))
     assert result.returncode == 0, result.stderr
-    assert gh.read_text() == "file=CHANGELOG.md\ncount=7\n"
+    assert gh.read_text() == "file=CHANGELOG.md\ncount=8\n"
 
 
 @pytest.mark.parametrize(

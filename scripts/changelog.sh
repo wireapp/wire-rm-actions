@@ -7,6 +7,9 @@
 #
 #   feat(api): add x (#12)     ->  * **api:** add x ([#12](<repo>/pull/12)) ([abcdef01](<repo>/commit/<sha>))
 #   fix: y [breaking]          ->  section "Breaking Changes"
+#   feat!: z, fix(api)!: z     ->  section "Breaking Changes" too (the "!" of
+#                                  the conventional commits, which
+#                                  generate-changelog does not know)
 #   (merge-commits=pull-request) a commit under "Merge pull request #12" gets
 #                                  ([#12](<repo>/pull/12)) before its commit link
 #   anything without "type:"   ->  left out
@@ -161,10 +164,18 @@ function link_prs(s,    out, num) {
 # The subject pattern of generate-changelog:
 #   ^([^)]*)(?:\(([^)]*?)\)|):(.*?(?:\[([^\]]+?)\]|))\s*$
 # The greedy type ends at the last ":" (or "(scope):") before the first ")".
+# Before that, the "!" of a conventional breaking change ("feat!: z",
+# "fix(api)!: z"), which that pattern would make part of the type or miss,
+# is taken off and remembered.
 {
   sha = $1
   subject = substr($0, length(sha) + 2)
   if (sha == "") next
+  bang = 0
+  if (match(subject, /^[^ :()!]+(\([^)]*\))?!:/)) {
+    bang = 1
+    subject = substr(subject, 1, RLENGTH - 2) substr(subject, RLENGTH)
+  }
   len = length(subject)
   close_at = index(subject, ")")
   limit = close_at ? close_at - 1 : len
@@ -188,6 +199,7 @@ function link_prs(s,    out, num) {
     nflags = split(tolower(substr(rest, RSTART + 1, RLENGTH - 2)), flags, ",")
     for (i = 1; i <= nflags; i++) if (trim(flags[i]) == "breaking") type = "breaking"
   }
+  if (bang) type = "breaking"
   if (type in excluded) next
   scope = neutralize(scope)
   rest = neutralize(rest)

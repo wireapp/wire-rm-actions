@@ -50,9 +50,9 @@ its build inputs.
 | `platforms` | no | `linux/amd64` | Comma-separated platforms. More than one sets up QEMU and pushes a multi-platform index. |
 | `revision` | no | the run commit | Source commit, for the `org.opencontainers.image.revision` label. |
 | `labels` | no | `""` | More OCI labels as `KEY=VALUE` lines (e.g. `org.opencontainers.image.title`, `.description`, `.url`), set as label and as annotation like the stamped ones. Not `version`, `revision`, `source`, `created` nor `quay.expires-after`: the action sets those. |
-| `provenance` | no | `mode=max` | SLSA provenance attestation pushed with the image: `mode=max`, `mode=min`, `true` (= `mode=min`) or `false`. |
-| `sbom` | no | `true` | SBOM attestation pushed with the image: `true` or `false`. |
-| `expires-after` | no | `""` | Dev builds only: Quay deletes the image after this delay (`90d`, or hours `h`, days `d`, weeks `w`). Empty keeps it. |
+| `provenance` | no | `mode=max`, `false` with `expires-after` | SLSA provenance attestation pushed with the image: `mode=max`, `mode=min`, `true` (= `mode=min`) or `false`. |
+| `sbom` | no | `true`, `false` with `expires-after` | SBOM attestation pushed with the image: `true` or `false`. |
+| `expires-after` | no | `""` | Dev builds only: Quay deletes the image after this delay (`90d`, or hours `h`, days `d`, weeks `w`). Empty keeps it. The image is then built without attestations; `provenance` or `sbom` asked for with it fails the step. |
 | `username` | no | `""` | Registry user (a Quay robot account of the team). Empty: the job is already logged in, e.g. by [quay-login](../quay-login/README.md). |
 | `password` | no | `""` | Registry password or token, with `username`. |
 
@@ -88,7 +88,13 @@ its build inputs.
    `org.opencontainers.image.version`, `.revision`, `.source` and `.created`
    (the build time, UTC) and those of `labels`, the
    `provenance` and `sbom` attestations, and with `expires-after` the
-   `quay.expires-after` label.
+   `quay.expires-after` label. Annotations go on the manifest and on the
+   index, which buildx pushes for a multi-platform image or when it attaches
+   attestations. With `expires-after` the image is pushed without
+   attestations: for an index, Quay applies the expiry only when every
+   manifest of it carries the label, the attestation manifest carries none,
+   and the annotations of the index are not read, so an image with
+   attestations never expires (checked on quay.io).
 4. Reads the digest back from the registry and checks it is the one the build
    pushed.
 5. With `username`: logs out of the registry, also when a previous step

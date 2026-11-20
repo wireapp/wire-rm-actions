@@ -117,10 +117,10 @@ def test_new_tag_is_built_and_pushed(env):
         f"org.opencontainers.image.created={CREATED}",
     ]
     assert _pairs(build, "--annotation") == [
-        f"manifest:org.opencontainers.image.version={VERSION}",
-        f"manifest:org.opencontainers.image.revision={SHA}",
-        "manifest:org.opencontainers.image.source=https://github.com/wireapp/my-component",
-        f"manifest:org.opencontainers.image.created={CREATED}",
+        f"index,manifest:org.opencontainers.image.version={VERSION}",
+        f"index,manifest:org.opencontainers.image.revision={SHA}",
+        "index,manifest:org.opencontainers.image.source=https://github.com/wireapp/my-component",
+        f"index,manifest:org.opencontainers.image.created={CREATED}",
     ]
     assert _outputs(env) == {
         "image": IMAGE,
@@ -152,11 +152,18 @@ def test_tag_input_wins_over_version(env):
 
 
 def test_multi_platform_annotates_the_index(env):
-    result = _run(env, PLATFORMS="linux/amd64,linux/arm64")
+    result = _run(env, PLATFORMS="linux/amd64,linux/arm64", PROVENANCE="false", SBOM="false")
     assert result.returncode == 0, result.stderr
     build = _build(env)
     assert _pairs(build, "--platform") == ["linux/amd64,linux/arm64"]
     assert all(a.startswith("index,manifest:") for a in _pairs(build, "--annotation"))
+
+
+def test_single_platform_without_attestations_annotates_the_manifest_only(env):
+    result = _run(env, PROVENANCE="false", SBOM="false")
+    assert result.returncode == 0, result.stderr
+    build = _build(env)
+    assert all(a.startswith("manifest:") for a in _pairs(build, "--annotation"))
 
 
 def test_build_args_contexts_and_target(env):
@@ -187,12 +194,34 @@ def test_provenance_mode_min(env):
     assert {"--provenance=mode=min", "--sbom=true"} <= set(_build(env))
 
 
-def test_expires_after_is_a_label_only(env):
-    result = _run(env, EXPIRES_AFTER="90d")
+# Quay never expires an image that carries attestations (checked on quay.io, also
+# with the expiry as an annotation of the index): an image that expires is the bare one.
+@pytest.mark.parametrize("extra", [{}, {"PROVENANCE": "false", "SBOM": "false"}, {"PROVENANCE": "false"}], ids=["default", "off", "half"])
+def test_expires_after_is_a_label_on_an_image_without_attestations(env, extra):
+    result = _run(env, EXPIRES_AFTER="90d", **extra)
     assert result.returncode == 0, result.stderr
     build = _build(env)
     assert "quay.expires-after=90d" in _pairs(build, "--label")
     assert not any("expires" in a for a in _pairs(build, "--annotation"))
+    assert {"--provenance=false", "--sbom=false"} <= set(build)
+    assert all(a.startswith("manifest:") for a in _pairs(build, "--annotation"))
+    assert "built without provenance nor SBOM attestation" in result.stdout
+
+
+def test_expires_after_on_a_multi_platform_image_keeps_the_index_annotations(env):
+    result = _run(env, EXPIRES_AFTER="90d", PLATFORMS="linux/amd64,linux/arm64")
+    assert result.returncode == 0, result.stderr
+    build = _build(env)
+    assert "quay.expires-after=90d" in _pairs(build, "--label")
+    assert {"--provenance=false", "--sbom=false"} <= set(build)
+    assert all(a.startswith("index,manifest:org.opencontainers.") for a in _pairs(build, "--annotation"))
+
+
+def test_no_expiry_keeps_the_attestations_and_says_nothing(env):
+    result = _run(env)
+    assert result.returncode == 0, result.stderr
+    assert {"--provenance=mode=max", "--sbom=true"} <= set(_build(env))
+    assert "built without" not in result.stdout
 
 
 def test_created_defaults_to_now(env):
@@ -254,6 +283,10 @@ def test_more_labels_are_label_and_annotation(env):
         ({"PLATFORMS": "linux/amd64, linux/arm64"}, "is not a comma-separated list"),
         ({"PROVENANCE": "max"}, "PROVENANCE must be"),
         ({"SBOM": "yes"}, "SBOM must be"),
+        ({"EXPIRES_AFTER": "90d", "PROVENANCE": "mode=max"}, "EXPIRES_AFTER cannot go with PROVENANCE or SBOM"),
+        ({"EXPIRES_AFTER": "90d", "PROVENANCE": "true"}, "EXPIRES_AFTER cannot go with PROVENANCE or SBOM"),
+        ({"EXPIRES_AFTER": "90d", "SBOM": "true"}, "EXPIRES_AFTER cannot go with PROVENANCE or SBOM"),
+        ({"EXPIRES_AFTER": "90d", "PROVENANCE": "false", "SBOM": "true"}, "EXPIRES_AFTER cannot go with PROVENANCE or SBOM"),
     ],
 )
 def test_bad_input_fails_before_any_call(env, extra, message):
