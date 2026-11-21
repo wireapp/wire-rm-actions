@@ -7,6 +7,7 @@
 #     with a Quay expiration;
 #   - chart file (CHART_FILE): push an already packaged .tgz as is, the exact
 #     asset of a draft release, without repackaging and never with an expiration.
+#     Its appVersion must be its version, or APP_VERSION when given.
 # A version already in the registry is never overwritten: in package mode its
 # digest is read back; in chart-file mode the same content (the pulled .tgz has
 # the sha256 of the given one) is a no-op and another content a hard failure.
@@ -23,8 +24,8 @@
 # the Chart.yaml name), REGISTRY (default quay.io), CHANNEL (default dev),
 # ATTEMPTS (default 1: no retry; CHART_FILE only), RETRY_DELAY (seconds between
 # attempts, default 10),
-# APP_VERSION (package mode only, set by publish-extra-chart: the appVersion of
-# the package instead of VERSION),
+# APP_VERSION (set by publish-extra-chart only: the appVersion of the package
+# instead of VERSION; with CHART_FILE, the appVersion the package must have),
 # EXPIRES_AFTER (dev channel, package mode only, e.g. 90d: Quay deletes the tag
 # after that delay; the pushed manifest gets the quay.expires-after annotation,
 # which helm push cannot set, so oras rewrites it: needs oras and jq on PATH).
@@ -57,7 +58,6 @@ if (( attempts > 1 )) && [[ -z $chart_file ]]; then
   die "ATTEMPTS is for CHART_FILE only: a chart directory is packaged and pushed once"
 fi
 if [[ -n $app_version ]]; then
-  [[ -z $chart_file ]] || die "APP_VERSION is refused with CHART_FILE: a packaged chart is pushed as is"
   [[ $app_version =~ ^[0-9A-Za-z][0-9A-Za-z.+_-]*$ ]] \
     || die "APP_VERSION must be a version string (letters, digits and . + _ -), not '$app_version'"
 fi
@@ -85,8 +85,13 @@ if [[ -n $chart_file ]]; then
   file_version=$(chart_field "$chart_file" version)
   [[ -n $file_version ]] || die "cannot read the chart version from $chart_file"
   file_app_version=$(chart_field "$chart_file" appVersion)
-  [[ $file_app_version == "$file_version" ]] \
-    || die "$chart_file has appVersion '$file_app_version', expected the chart version '$file_version' (ADR-0018)"
+  if [[ -n $app_version ]]; then
+    [[ $file_app_version == "$app_version" ]] \
+      || die "$chart_file has appVersion '$file_app_version', expected '$app_version'"
+  else
+    [[ $file_app_version == "$file_version" ]] \
+      || die "$chart_file has appVersion '$file_app_version', expected the chart version '$file_version' (ADR-0018)"
+  fi
   if [[ -n $version && $version != "$file_version" ]]; then
     die "$chart_file is version '$file_version', expected '$version'"
   fi

@@ -31,11 +31,16 @@ charts do not fit that rule: a wrapper of cert-manager, keycloakx or loki
 names the upstream release in its `appVersion`, maintained by hand, while its
 own `version` comes from the [version](../version/README.md) action.
 
-`publish-extra-chart` packages the chart directory with `version` set to the
-build version and `appVersion` to `app-version`, then pushes it to
-`oci://<registry>/wire/charts/<channel>/<name>` (ADR-0012), with the same
-guarantees as publish-chart: a published version is never overwritten, its
-digest is read back, and a dev chart can expire on Quay.
+`publish-extra-chart` pushes such a chart to
+`oci://<registry>/wire/charts/<channel>/<name>` (ADR-0012), in the two modes
+of publish-chart and with the same guarantees: a published version is never
+overwritten, its digest is read back, and a dev chart can expire on Quay.
+
+- `chart-path`: the chart directory is packaged here, with `version` set to
+  the build version and `appVersion` to `app-version`. For dev builds.
+- `chart-file`: at publication, the package of the draft release, the one
+  that was prepared and approved, is pushed as is, never repackaged. Its
+  `appVersion` must be `app-version`.
 
 ## Technical reference
 
@@ -43,13 +48,15 @@ digest is read back, and a dev chart can expire on Quay.
 
 | Input | Required | Default | Description |
 |---|---|---|---|
-| `chart-path` | yes | | Path of the chart directory to package. |
-| `version` | yes | | The chart version, from [version](../version/README.md). |
-| `app-version` | yes | | The `appVersion` of the package: the upstream release, usually read from `Chart.yaml`. |
-| `chart-name` | no | the `Chart.yaml` name | Chart name in the registry. |
+| `chart-path` | one of the two | | Path of the chart directory to package. |
+| `chart-file` | one of the two | | Path of a packaged chart, `<name>-<version>.tgz`, pushed as is. |
+| `version` | with `chart-path` | | The chart version, from [version](../version/README.md); with `chart-file`, checked against the package when given. |
+| `app-version` | yes | | The `appVersion` of the package: the upstream release, usually read from `Chart.yaml`. With `chart-file`, the package must have it. |
+| `chart-name` | no | the `Chart.yaml` name | Chart name in the registry; checked against the package with `chart-file`. |
 | `registry` | no | `quay.io` | OCI registry host. |
 | `channel` | no | `dev` | Registry channel: `dev` or `stable`. |
-| `expires-after` | no | `""` | Dev channel only: Quay deletes the version after this delay (`90d`, or hours `h`, days `d`, weeks `w`). Empty keeps it. |
+| `expires-after` | no | `""` | Dev channel and `chart-path` only: Quay deletes the version after this delay (`90d`, or hours `h`, days `d`, weeks `w`). Empty keeps it. |
+| `attempts` | no | `1` | `chart-file` only: how many times to try the push, 10 s apart, as in publish-chart. |
 | `username` | no | `""` | Registry user (a Quay robot account); empty when the job is already logged in ([quay-login](../quay-login/README.md)). |
 | `password` | no | `""` | Registry password or token, with `username`. |
 
@@ -66,9 +73,12 @@ Same as publish-chart: `repository`, `digest`, and `status` (`pushed`, or
 
 ### Behaviour
 
-The steps of publish-chart with `chart-path`, the package made with
-`helm package --version <version> --app-version <app-version>`. There is no
-`chart-file` mode: an extra chart is packaged where it is published.
+The steps of publish-chart. With `chart-path`, the package is made with
+`helm package --version <version> --app-version <app-version>`. With
+`chart-file`, the package is checked (name, version, `appVersion ==
+app-version`) and pushed as is: the prepare-release workflow packages it
+once, with the same `helm package` call, and attaches it to the draft
+release.
 
 ## Example
 
@@ -86,6 +96,17 @@ The steps of publish-chart with `chart-path`, the package made with
           expires-after: 90d
           username: ${{ steps.quay.outputs.username }}
           password: ${{ steps.quay.outputs.token }}
+```
+
+At publication, the approved package from the draft release:
+
+```yaml
+      - uses: wireapp/wire-rm-actions/publish-extra-chart@<sha> # vX.Y.Z
+        with:
+          chart-file: ${{ steps.manifest.outputs.chart-path }}
+          app-version: ${{ steps.chart.outputs.app-version }}
+          channel: stable
+          attempts: 3
 ```
 
 ## Why
