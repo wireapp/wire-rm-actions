@@ -270,14 +270,16 @@ jobs:
           file: testdata/release-declaration/valid.json
           component: my-component
           version: 4.25.0
-      # A dev build of the smoke version: no note in this repository (a warning), and a
-      # manifest from an ADR-0020 compatibility file of the test data.
+      # A dev build of the smoke version: no note in its publication folder (a warning; not
+      # this repository's own, which has one), and a manifest from an ADR-0020 compatibility
+      # file of the test data.
       - id: documents
         uses: ./release-documents
         with:
           component: smoke
           version: ${{ steps.version.outputs.version }}
           release-type: dev
+          publication-dir: testdata/no-publication
       - id: manifest
         uses: ./release-manifest
         with:
