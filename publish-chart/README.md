@@ -14,7 +14,8 @@
 [promote-image](../promote-image/README.md) ·
 [ci-gate](../ci-gate/README.md) ·
 [draft-release](../draft-release/README.md) ·
-[publish-chart-s3](../publish-chart-s3/README.md)
+[publish-chart-s3](../publish-chart-s3/README.md) ·
+[publish-extra-chart](../publish-extra-chart/README.md)
 
 # publish-chart
 
@@ -29,6 +30,9 @@ version (ADR-0018), whatever `Chart.yaml` says, and pushes the package to
 `oci://<registry>/wire/charts/<channel>/<name>` (ADR-0012). It outputs the
 repository and the digest, ready for
 [notify-rm](../notify-rm/README.md).
+Extra charts that repackage an upstream release and name it in their
+`appVersion` use [publish-extra-chart](../publish-extra-chart/README.md)
+instead: here the rule has no exception.
 
 At publication, the chart is the `.tgz` asset of the draft release, the exact
 package that was prepared and approved: `chart-file` pushes it as is, without
@@ -81,10 +85,13 @@ version is a no-op, another content a failure.
    to a push: a check that fails for any other reason (network, 5xx, local
    error, a blob that cannot be downloaded) fails the step without pushing.
 3. Otherwise, with `chart-path`: `helm dependency build` when `Chart.yaml` has
-   dependencies, `helm package --version <version> --app-version <version>`,
-   `helm push`. With `chart-file`: `helm push` of the file as is, after
-   checking its name, its `version == appVersion` and, when given, `version`
-   and `chart-name`. When the push fails and `attempts` allows another, the
+   dependencies or the chart has a `requirements.yaml` (`apiVersion: v1`) and
+   one of them is not in `charts/` yet (`helm dependency list`): a job that
+   already ran `helm dependency update` needs no `helm repo add`. Then
+   `helm package --version <version> --app-version <version>`, `helm push`.
+   With `chart-file`: `helm push` of the file as is, after checking its name,
+   its `version == appVersion` and, when given, `version` and `chart-name`.
+   When the push fails and `attempts` allows another, the
    step waits 10 s and starts again from point 2: a chart that landed despite
    the error is a no-op (same sha256) or a failure (another content), never
    pushed twice. The step fails when the last attempt fails.

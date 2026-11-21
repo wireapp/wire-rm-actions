@@ -21,7 +21,8 @@ VERSION = "4.24.3-20261005135125.gabcdef0"
 # the error every pull fails with instead, or with FAKE_PULL_ERROR_AFTER_PUSH=1
 # every pull once a push has been tried. Like helm, a pull fails when its
 # destination directory does not exist (helm 3.19 and 3.20 both print the digest,
-# then cannot write the file): the script creates it.
+# then cannot write the file): the script creates it. FAKE_DEPENDENCY_STATUS is
+# the status helm dependency list gives the one dependency (default missing).
 FAKE_HELM = r"""#!/usr/bin/env bash
 set -euo pipefail
 echo "$*" >>"$HELM_LOG"
@@ -48,6 +49,10 @@ case "$1 ${2:-}" in
     echo "Error: failed to perform \"FetchReference\" on source: ${2#oci://}:$4: not found" >&2
     exit 1
   fi
+  ;;
+"dependency list")
+  printf 'NAME\tVERSION\tREPOSITORY\tSTATUS\n'
+  printf 'redis\t1.0.0\thttps://charts.example.com\t%s\n' "${FAKE_DEPENDENCY_STATUS:-missing}"
   ;;
 "dependency build")
   echo "Saving 1 charts"
@@ -175,6 +180,69 @@ def test_new_version_is_packaged_and_pushed(env):
     assert "digest=sha256:pushed" in result.stdout.splitlines()
 
 
+def test_app_version_sets_the_package_app_version(env):
+    result = _run(env, APP_VERSION="3.5.7")
+    assert result.returncode == 0, result.stderr
+    package = next(c for c in _calls(env) if c.startswith("package "))
+    assert f"--version {VERSION} --app-version 3.5.7" in package
+
+
+@pytest.mark.parametrize("value", ["3.5 7", "-x", "a/b"])
+def test_app_version_must_be_a_version_string(env, value):
+    result = _run(env, APP_VERSION=value)
+    assert result.returncode == 1
+    assert "APP_VERSION must be a version string" in result.stderr
+    assert _calls(env) == []
+
+
+def test_app_version_is_the_expected_app_version_of_a_chart_file(env, tmp_path):
+    tgz = _chart_file(tmp_path, "loki-wrapper", "1.41.5", app_version="3.5.7")
+    result = _run(env, CHART_PATH="", VERSION="", CHART_FILE=str(tgz), APP_VERSION="3.5.7")
+    assert result.returncode == 0, result.stderr
+    calls = _calls(env)
+    assert not any(c.startswith("package ") for c in calls)
+    push = next(c for c in calls if c.startswith("push "))
+    assert push.startswith(f"push {tgz} ")
+
+
+@pytest.mark.parametrize("app_version", ["3.5.8", ""])
+def test_a_chart_file_with_another_app_version_is_refused(env, tmp_path, app_version):
+    # Without APP_VERSION, an extra chart file falls under the Wire rule.
+    tgz = _chart_file(tmp_path, "loki-wrapper", "1.41.5", app_version="3.5.7")
+    result = _run(env, CHART_PATH="", VERSION="", CHART_FILE=str(tgz), APP_VERSION=app_version)
+    assert result.returncode == 1
+    expected = "'3.5.8'" if app_version else "the chart version '1.41.5' (ADR-0018)"
+    assert f"has appVersion '3.5.7', expected {expected}" in result.stderr
+    assert not any(c.startswith(("pull ", "push ")) for c in _calls(env))
+
+
+def _action(name: str) -> dict:
+    # yq, pinned by make tools: PyYAML is not a CI dependency.
+    yq = subprocess.run(
+        ["yq", "-o=json", ".", str(SCRIPT.parent.parent / name / "action.yml")],
+        capture_output=True, text=True, check=True,
+    )
+    return json.loads(yq.stdout)
+
+
+def test_publish_chart_never_inherits_an_app_version():
+    # A job-level APP_VERSION must not reach the script: a Wire chart keeps
+    # appVersion == version.
+    action = _action("publish-chart")
+    assert "app-version" not in action["inputs"]
+    push = next(step for step in action["runs"]["steps"] if step.get("id") == "push")
+    assert push["env"]["APP_VERSION"] == ""
+
+
+def test_publish_extra_chart_requires_an_app_version():
+    action = _action("publish-extra-chart")
+    assert action["inputs"]["app-version"]["required"] is True
+    push = next(step for step in action["runs"]["steps"] if step.get("id") == "push")
+    assert push["env"]["APP_VERSION"] == "${{ inputs.app-version }}"
+    assert push["env"]["CHART_FILE"] == "${{ inputs.chart-file }}"
+    assert push["env"]["ATTEMPTS"] == "${{ inputs.attempts }}"
+
+
 def test_defaults_to_quay_dev(env):
     result = _run(env)
     assert result.returncode == 0, result.stderr
@@ -250,6 +318,50 @@ def test_dependencies_are_built(env):
     calls = _calls(env)
     build = calls.index(f"dependency build {env['CHART_PATH']}")
     assert build < next(i for i, c in enumerate(calls) if c.startswith("package "))
+
+
+# An apiVersion v1 chart declares its dependencies in requirements.yaml, not in
+# Chart.yaml: helm package refuses it when they are not in charts/.
+def test_requirements_dependencies_are_built(env):
+    (Path(env["CHART_PATH"]) / "requirements.yaml").write_text(
+        "dependencies:\n  - name: redis\n    version: 1.0.0\n    repository: file://../redis\n"
+    )
+    result = _run(env)
+    assert result.returncode == 0, result.stderr
+    calls = _calls(env)
+    build = calls.index(f"dependency build {env['CHART_PATH']}")
+    assert build < next(i for i, c in enumerate(calls) if c.startswith("package "))
+
+
+def _add_dependency(env: dict[str, str], file: str) -> None:
+    chart = Path(env["CHART_PATH"])
+    dependency = "dependencies:\n  - name: redis\n    version: 1.0.0\n    repository: https://charts.example.com\n"
+    if file == "Chart.yaml":
+        (chart / file).write_text((chart / file).read_text() + dependency)
+    else:
+        (chart / file).write_text(dependency)
+
+
+@pytest.mark.parametrize("file", ["Chart.yaml", "requirements.yaml"])
+def test_dependency_of_another_version_is_built(env, file):
+    _add_dependency(env, file)
+    result = _run(env, FAKE_DEPENDENCY_STATUS="wrong version")
+    assert result.returncode == 0, result.stderr
+    assert f"dependency build {env['CHART_PATH']}" in _calls(env)
+
+
+# The caller ran helm dependency update: build would fail without the
+# repositories added with helm repo add.
+@pytest.mark.parametrize("file", ["Chart.yaml", "requirements.yaml"])
+@pytest.mark.parametrize("status", ["ok", "unpacked"])
+def test_fetched_dependencies_are_not_built_again(env, file, status):
+    _add_dependency(env, file)
+    result = _run(env, FAKE_DEPENDENCY_STATUS=status)
+    assert result.returncode == 0, result.stderr
+    calls = _calls(env)
+    assert f"dependency list {env['CHART_PATH']}" in calls
+    assert not any(c.startswith("dependency build") for c in calls)
+    assert any(c.startswith("package ") for c in calls)
 
 
 def test_chart_name_input_wins(env):
