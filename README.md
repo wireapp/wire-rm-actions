@@ -6,22 +6,7 @@
 One version per build, one chart layout, one way to tell the release manager
 what was built.
 
-```mermaid
-flowchart LR
-    checkout["checkout<br/>fetch-depth: 0"] --> version
-    version --> images["build-image"]
-    images --> chart["publish-chart"]
-    chart --> notify["notify-rm"]
-    declaration["release-declaration"] -. releases .-> notify
-    compatibility -. manifest .-> notify
-    changelog -. releases .-> ghrelease["GitHub Release"]
-    notify --> rm[("release managers<br/>staging + prod")]
-    subgraph release["release (prepare, then publish on approval)"]
-        inputs["release-inputs"] --> source["release-source"] --> rversion["version<br/>mode: release"]
-        rversion --> documents["release-documents"] --> manifest["release-manifest"]
-        manifest --> promote["promote-image"] --> rchart["publish-chart<br/>chart-file"]
-    end
-```
+![How a component publishes with wire-rm-actions: dev build, prepare release, publish release](docs/release-flow.svg)
 
 ## The actions
 
