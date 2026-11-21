@@ -7,11 +7,12 @@
 #   SOURCE_BRANCH     the trunk or a maintained release/X.Y line, resolvable as
 #                     REMOTE/<branch> (required)
 #   RELEASE_TYPE      ga | alpha | beta | rc (required)
-#   VERSION_BUMP      patch | minor | major (default patch). From a GA anchor,
-#                     the bump of the next GA or of the first pre-release. From
-#                     a pre-release anchor, patch continues that pre-release
-#                     and minor | major open a new line from its base
-#                     (2.0.17-alpha.6 + minor -> 2.1.0-alpha.1 or 2.1.0)
+#   VERSION_BUMP      patch | minor | major (default patch). From a GA, the
+#                     bump of the next GA or of the first pre-release. From a
+#                     pre-release, patch continues that pre-release and
+#                     minor | major open a new line from its base
+#                     (2.0.17-alpha.6 + minor -> 2.1.0-alpha.1 or 2.1.0). From
+#                     an anchor, patch only
 #   EXPECTED_VERSION  optional: the version the release manager previewed. Never
 #                     a source: the run fails, printing both values, when it
 #                     differs from the result
@@ -21,26 +22,30 @@
 # Needs a checkout with the full tag history (fetch-depth: 0).
 #
 # Rules:
-#   - anchor = the latest release tag <prefix>X.Y.Z[-...] reachable from
-#     REMOTE/SOURCE_BRANCH (git describe; when several release tags point at
-#     that commit, the highest in SemVer); other tags play no part;
-#   - from a pre-release anchor with VERSION_BUMP patch: ga promotes its base,
-#     the same channel increments N, a higher channel restarts at 1, a lower
+#   - the latest tag = the latest release tag <prefix>X.Y.Z[-...] or anchor
+#     <prefix>X.Y.Z-0 reachable from REMOTE/SOURCE_BRANCH (git describe; when
+#     several point at that commit, the highest in SemVer); other tags play no
+#     part, and release/X.Y reads the anchors of X.Y.* only;
+#   - from a pre-release with VERSION_BUMP patch: ga promotes its base, the
+#     same channel increments N, a higher channel restarts at 1, a lower
 #     channel is refused; the former form X.Y.Z-alphaNN is read but never
 #     continued (SemVer sorts alpha.5 below alpha04);
-#   - from a pre-release anchor with VERSION_BUMP minor or major: a new line
-#     opens from the base of the anchor, <bump> for ga, <bump>-<channel>.1
-#     otherwise, whatever the channel of the anchor;
-#   - from a GA anchor: ga bumps per VERSION_BUMP, a pre-release is
-#     <patch bump>-<channel>.1;
+#   - from a pre-release with VERSION_BUMP minor or major: a new line opens
+#     from its base, <bump> for ga, <bump>-<channel>.1 otherwise, whatever its
+#     channel;
+#   - from a GA: ga bumps per VERSION_BUMP, a pre-release is
+#     <bump>-<channel>.1;
+#   - from an anchor X.Y.Z-0, which names the next release (compute-version.sh):
+#     X.Y.Z for ga, X.Y.Z-<channel>.1 otherwise; VERSION_BUMP minor or major is
+#     refused;
 #   - release/X.Y may only produce X.Y.*; the target must not exist and no
 #     release of the scanned scope (the line, or every release for the trunk)
 #     may be ahead of it.
 #
-# Prints version=, kind= (ga | prerelease), tag=, latest-tag= (the anchor),
-# from-tag= (changelog base: the preceding GA for a GA or the first release of
-# a channel, the anchor otherwise) and sha= (the branch head), and appends them
-# to $GITHUB_OUTPUT when set.
+# Prints version=, kind= (ga | prerelease), tag=, latest-tag=, from-tag=
+# (changelog base: the preceding GA for a GA or the first release of a channel,
+# the latest tag otherwise) and sha= (the branch head), and appends them to
+# $GITHUB_OUTPUT when set.
 set -euo pipefail
 export LC_ALL=C
 # shellcheck source=scripts/lib.sh
@@ -90,28 +95,41 @@ branch_ref="refs/remotes/${REMOTE}/${SOURCE_BRANCH}"
 git rev-parse --verify --quiet "$branch_ref" >/dev/null \
   || die "branch '${SOURCE_BRANCH}' is not available as ${REMOTE}/${SOURCE_BRANCH}"
 
-# Latest explicit release (GA or pre-release) reachable from the branch.
-latest_tag="$(git describe --tags --match "$TAG_GLOB" --abbrev=0 "$branch_ref" 2>/dev/null || true)"
-[[ -n "$latest_tag" ]] \
-  || die "no release tag ${TAG_PREFIX}* is reachable from '${SOURCE_BRANCH}': the first release of this history needs a tag on the last release commit"
-# Several release tags on that commit (alpha.5 then alpha.6, rc.2 then the
-# GA): the highest wins.
-while IFS= read -r candidate_tag; do
-  [[ -n "$candidate_tag" ]] || continue
-  candidate="${candidate_tag#"$TAG_PREFIX"}"
-  [[ "$candidate" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta|rc)\.?[0-9]+)?$ ]] || continue
-  if [[ "$("$SEMVER" compare "$candidate" "${latest_tag#"$TAG_PREFIX"}")" == 1 ]]; then
-    latest_tag="$candidate_tag"
-  fi
-done < <(git tag -l "$TAG_GLOB" --points-at "${latest_tag}^{commit}")
-latest="${latest_tag#"$TAG_PREFIX"}"
-
 is_release_line=false
 line=""
 if [[ "$SOURCE_BRANCH" =~ ^release/([0-9]+\.[0-9]+)$ ]]; then
   is_release_line=true
   line="${BASH_REMATCH[1]}"
 fi
+
+# An anchor of another line, which a release/X.Y branch does not read.
+foreign_anchor() { # <tag>
+  local v="${1#"$TAG_PREFIX"}"
+  [[ "$is_release_line" == true && "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+-0$ && "$v" != "$line".* ]]
+}
+
+# Latest explicit release (GA or pre-release) or anchor reachable from the
+# branch.
+excludes=()
+while :; do
+  latest_tag="$(git describe --tags --match "$TAG_GLOB" ${excludes[@]+"${excludes[@]}"} --abbrev=0 "$branch_ref" 2>/dev/null || true)"
+  [[ -n "$latest_tag" ]] \
+    || die "no release tag ${TAG_PREFIX}* is reachable from '${SOURCE_BRANCH}': the first release of this history needs a tag on the last release commit, or an anchor ${TAG_PREFIX}X.Y.Z-0 naming it"
+  foreign_anchor "$latest_tag" || break
+  excludes+=(--exclude "$latest_tag")
+done
+# Several of them on that commit (alpha.5 then alpha.6, rc.2 then the GA, a GA
+# and the anchor of the next version): the highest wins.
+while IFS= read -r candidate_tag; do
+  [[ -n "$candidate_tag" ]] || continue
+  candidate="${candidate_tag#"$TAG_PREFIX"}"
+  [[ "$candidate" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta|rc)\.?[0-9]+|-0)?$ ]] || continue
+  ! foreign_anchor "$candidate_tag" || continue
+  if [[ "$("$SEMVER" compare "$candidate" "${latest_tag#"$TAG_PREFIX"}")" == 1 ]]; then
+    latest_tag="$candidate_tag"
+  fi
+done < <(git tag -l "$TAG_GLOB" --points-at "${latest_tag}^{commit}")
+latest="${latest_tag#"$TAG_PREFIX"}"
 
 target=""
 if [[ "$latest" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-(alpha|beta|rc)(\.?)([0-9]+)$ ]]; then
@@ -146,6 +164,12 @@ elif [[ "$latest" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   else
     target="$(bump_version "$latest" "$VERSION_BUMP")-${RELEASE_TYPE}.1"
   fi
+elif [[ "$latest" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-0$ ]]; then
+  # An anchor names the next release itself.
+  target="${BASH_REMATCH[1]}"
+  [[ "$VERSION_BUMP" == patch ]] \
+    || die "version_bump '${VERSION_BUMP}' is invalid from the anchor '${latest_tag}', which already names the next release: ${target}"
+  [[ "$RELEASE_TYPE" == ga ]] || target="${target}-${RELEASE_TYPE}.1"
 else
   die "could not parse the latest reachable release tag '${latest_tag}'"
 fi
@@ -178,8 +202,8 @@ while IFS= read -r existing_tag; do
 done < <(git tag -l "$tag_scope")
 
 # The changelog base: the preceding GA for a GA or the first release of a
-# channel (the whole delta since the last GA), the anchor otherwise. Without
-# any GA, the anchor.
+# channel (the whole delta since the last GA), the latest tag otherwise.
+# Without any GA, the latest tag.
 if [[ "$RELEASE_TYPE" == ga || "$target" =~ -(alpha|beta|rc)\.1$ ]]; then
   from_tag="$(git describe --tags --exclude '*-*' --match "$TAG_GLOB" --abbrev=0 "$branch_ref" 2>/dev/null || echo "$latest_tag")"
 else

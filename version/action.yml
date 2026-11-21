@@ -2,10 +2,10 @@ name: Wire version
 description: >-
   The ADR-0018 version, in one of two modes. build (default): the version of
   the checked-out commit, the tag on a tag build, else a dev build derived from
-  the nearest GA or pre-release tag. release: the next explicit release version
-  of a branch (X.Y.Z or X.Y.Z-<alpha|beta|rc>.N) for a prepare-release
-  workflow, from the release tags reachable from it. Both need a checkout with
-  fetch-depth 0 (tags and history).
+  the nearest GA, pre-release or anchor (X.Y.Z-0) tag. release: the next
+  explicit release version of a branch (X.Y.Z or X.Y.Z-<alpha|beta|rc>.N) for
+  a prepare-release workflow, from the release tags reachable from it. Both
+  need a checkout with fetch-depth 0 (tags and history).
 inputs:
   mode:
     description: build or release.
@@ -23,7 +23,7 @@ inputs:
     description: "release: ga, alpha, beta or rc."
     default: ""
   version-bump:
-    description: "release: patch, minor or major. From a GA, the bump of the next GA or first pre-release; from a pre-release, patch continues it and minor or major open a new line from its base."
+    description: "release: patch, minor or major. From a GA, the bump of the next GA or first pre-release; from a pre-release, patch continues it and minor or major open a new line from its base; from an anchor, patch only."
     default: patch
   expected-version:
     description: "release: the version the release manager previewed; the run fails when it differs from the result."
