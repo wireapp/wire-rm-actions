@@ -2,7 +2,8 @@
 # Point the reusable workflow at a release (make release-prep): every
 # `uses: wireapp/wire-rm-actions/<action>@<ref>` of dev-build.yml becomes
 # @<version>, whatever <ref> was (dev or the previous release). The release
-# workflow refuses a tag whose dev-build.yml calls another ref.
+# workflows refuse a commit whose dev-build.yml calls another ref
+# (check-release-ref.sh).
 #
 # Usage: set-release-ref.sh vX.Y.Z
 # Environment: WORKFLOW (default .github/workflows/dev-build.yml).
