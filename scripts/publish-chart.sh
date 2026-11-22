@@ -157,8 +157,17 @@ while true; do
     attempt=$((attempt + 1))
   else
     echo "$repository:$version is not published yet: ${absent#Error: }"
-    if grep -q '^dependencies:' "$chart_path/Chart.yaml"; then
-      helm dependency build "$chart_path"
+    # An apiVersion v1 chart declares its dependencies in requirements.yaml.
+    if grep -q '^dependencies:' "$chart_path/Chart.yaml" || [[ -f $chart_path/requirements.yaml ]]; then
+      # Only when one is missing: a caller that already ran helm dependency
+      # update has them all, and build would need their http(s) repositories
+      # added with helm repo add. helm package refuses a missing dependency.
+      # The table stops at the first empty line: helm then warns about what
+      # charts/ holds that is not declared, which is no dependency to fetch.
+      dependencies=$(helm dependency list "$chart_path") || die "cannot list the dependencies of $chart_path"
+      if awk 'NR > 1 && !NF {exit} NR > 1 && $NF != "ok" && $NF != "unpacked" {missing = 1} END {exit !missing}' <<<"$dependencies"; then
+        helm dependency build "$chart_path"
+      fi
     fi
     helm package "$chart_path" --version "$version" --app-version "${app_version:-$version}" -d "$work"
     helm push "$work/${name}-${version}.tgz" "$base" 2>&1 | tee "$work/push.log"
