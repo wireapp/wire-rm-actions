@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 880" width="1200" height="880" xmlns:c2pa="http://c2pa.org/manifest">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 910" width="1200" height="910">
 <style>
 text{font-family:Inter,Helvetica,Arial,sans-serif;font-size:13px;fill:#1f2933}
 .h{font-size:20px;font-weight:600}.sub{font-size:12px;fill:#52606d}
@@ -10,15 +10,16 @@ text{font-family:Inter,Helvetica,Arial,sans-serif;font-size:13px;fill:#1f2933}
 .blue{fill:#e3f0ff}.green{fill:#e3f9e5}.amber{fill:#fff3d6}.gray{fill:#f5f7fa}
 .arr{stroke:#52606d;stroke-width:1.6;fill:none;marker-end:url(#a)}
 .flow{stroke:#7fa6d6;stroke-width:1.3;fill:none;marker-end:url(#b)}
+.dash{stroke-dasharray:6 4}
 .lbl{font-size:11px;fill:#52606d}
 .legacy{stroke:#c0392b;stroke-dasharray:5 3}
 </style>
 <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#52606d"/></marker>
 <marker id="b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#7fa6d6"/></marker></defs>
-<rect width="1200" height="880" fill="#ffffff"/>
+<rect width="1200" height="910" fill="#ffffff"/>
 <text class="h" x="24" y="38" text-anchor="start">How a component publishes with wire-rm-actions</text>
-<text class="sub" x="24" y="58" text-anchor="start">Its workflows call the actions (pills, in run order). Every arrow is something written outside the repository.</text>
-<rect class="box blue" x="24" y="84" width="340" height="766" rx="10"/>
+<text class="sub" x="24" y="58" text-anchor="start">Its workflows call the actions (pills, in run order; dashed where a component needs them). Every arrow is a write outside the repository.</text>
+<rect class="box blue" x="24" y="84" width="340" height="800" rx="10"/>
 <text class="t" x="38" y="108" text-anchor="start">Dev build</text>
 <text class="sub" x="38" y="126" text-anchor="start">on every push to dev or release/*</text>
 <rect class="chip" x="44" y="145" width="300" height="26" rx="13"/>
@@ -26,31 +27,33 @@ text{font-family:Inter,Helvetica,Arial,sans-serif;font-size:13px;fill:#1f2933}
 <text class="lbl" x="332" y="162" text-anchor="end">fetch-depth: 0</text>
 <rect class="chip" x="44" y="193" width="300" height="26" rx="13"/>
 <text class="code" x="57" y="210" text-anchor="start">version</text>
-<text class="s" x="48" y="240" text-anchor="start">next patch + timestamp + commit:</text>
-<text class="code" x="48" y="258" text-anchor="start">5.2.2-20260930120000.gabcdef0</text>
-<text class="s" x="48" y="276" text-anchor="start">a tag build gets the tag itself</text>
+<text class="s" x="74" y="240" text-anchor="start">next patch + timestamp + commit:</text>
+<text class="code" x="74" y="258" text-anchor="start">5.2.2-20260930120000.gabcdef0</text>
+<text class="s" x="74" y="276" text-anchor="start">a tag build gets the tag itself</text>
 <rect class="chipo" x="44" y="367" width="300" height="26" rx="13"/>
 <text class="code" x="57" y="384" text-anchor="start">quay-login</text>
 <text class="lbl" x="332" y="384" text-anchor="end">OIDC</text>
-<text class="s" x="48" y="414" text-anchor="start">job token for a 1-hour robot token:</text>
-<text class="s" x="48" y="432" text-anchor="start">no registry password to store</text>
+<text class="s" x="74" y="414" text-anchor="start">job token for a 1-hour robot token:</text>
+<text class="s" x="74" y="432" text-anchor="start">no registry password to store</text>
 <rect class="chip" x="44" y="515" width="300" height="26" rx="13"/>
 <text class="code" x="57" y="532" text-anchor="start">build-image</text>
 <text class="lbl" x="332" y="532" text-anchor="end">images first</text>
 <rect class="chip" x="44" y="595" width="300" height="26" rx="13"/>
 <text class="code" x="57" y="612" text-anchor="start">publish-chart</text>
 <text class="lbl" x="332" y="612" text-anchor="end">chart-path</text>
-<text class="s" x="48" y="646" text-anchor="start">image tag = appVersion = version:</text>
-<text class="s" x="48" y="664" text-anchor="start">the chart pulls the image of its build</text>
-<rect class="chip" x="44" y="765" width="300" height="26" rx="13"/>
-<text class="code" x="57" y="782" text-anchor="start">notify-rm</text>
-<text class="s" x="48" y="822" text-anchor="start">chart-only component: the reusable</text>
-<text class="s" x="48" y="840" text-anchor="start">workflow dev-build.yml does all of it</text>
-<path class="flow" d="M194,171 L194,193"/>
-<path class="flow" d="M194,219 L194,367"/>
-<path class="flow" d="M194,393 L194,515"/>
-<path class="flow" d="M194,541 L194,595"/>
-<path class="flow" d="M194,621 L194,765"/>
+<rect class="chip" x="44" y="647" width="300" height="26" rx="13"/>
+<text class="code" x="57" y="664" text-anchor="start">release-manifest</text>
+<text class="lbl" x="332" y="664" text-anchor="end">write</text>
+<rect class="chip" x="44" y="729" width="300" height="26" rx="13"/>
+<text class="code" x="57" y="746" text-anchor="start">notify-rm</text>
+<text class="s" x="74" y="786" text-anchor="start">chart-only component: the reusable</text>
+<text class="s" x="74" y="804" text-anchor="start">workflow dev-build.yml does all of it</text>
+<path class="flow" d="M60,171 L60,193"/>
+<path class="flow" d="M60,219 L60,367"/>
+<path class="flow" d="M60,393 L60,515"/>
+<path class="flow" d="M60,541 L60,595"/>
+<path class="flow" d="M60,621 L60,647"/>
+<path class="flow" d="M60,673 L60,729"/>
 <text class="k" x="432" y="478" text-anchor="start">WHERE IT LANDS</text>
 <rect class="box green" x="432" y="494" width="330" height="68" rx="10"/>
 <text class="t" x="446" y="518" text-anchor="start">Container image</text>
@@ -60,15 +63,15 @@ text{font-family:Inter,Helvetica,Arial,sans-serif;font-size:13px;fill:#1f2933}
 <text class="t" x="446" y="598" text-anchor="start">Helm chart (OCI)</text>
 <text class="code" x="446" y="616" text-anchor="start">oci://quay.io/wire/charts/&lt;channel&gt;/&lt;name&gt;</text>
 <text class="s" x="446" y="634" text-anchor="start">channel dev or stable; version == appVersion</text>
-<rect class="box gray legacy" x="432" y="654" width="330" height="68" rx="10"/>
-<text class="t" x="446" y="678" text-anchor="start">S3 Helm repository (interim)</text>
-<text class="s" x="446" y="696" text-anchor="start">helm-s3, for deployments that still read one</text>
-<text class="s" x="446" y="714" text-anchor="start">same package again = no-op</text>
-<rect class="box green" x="432" y="732" width="330" height="92" rx="10"/>
-<text class="t" x="446" y="756" text-anchor="start">Release managers</text>
-<text class="s" x="446" y="774" text-anchor="start">staging and prod</text>
-<text class="code" x="446" y="792" text-anchor="start">POST /api/v1/versions</text>
-<text class="s" x="446" y="810" text-anchor="start">version, artifact, provenance, manifest</text>
+<rect class="box gray legacy" x="432" y="802" width="330" height="68" rx="10"/>
+<text class="t" x="446" y="826" text-anchor="start">S3 Helm repository (interim)</text>
+<text class="s" x="446" y="844" text-anchor="start">helm-s3, for deployments that still read one</text>
+<text class="s" x="446" y="862" text-anchor="start">same package again = no-op</text>
+<rect class="box green" x="432" y="696" width="330" height="92" rx="10"/>
+<text class="t" x="446" y="720" text-anchor="start">Release managers</text>
+<text class="s" x="446" y="738" text-anchor="start">staging and prod</text>
+<text class="code" x="446" y="756" text-anchor="start">POST /api/v1/versions</text>
+<text class="s" x="446" y="774" text-anchor="start">version, artifact, provenance, manifest</text>
 <rect class="box blue" x="836" y="84" width="340" height="214" rx="10"/>
 <text class="t" x="850" y="108" text-anchor="start">Prepare release</text>
 <text class="sub" x="850" y="126" text-anchor="start">dispatched on dev or release/X.Y, by hand or by RM</text>
@@ -79,13 +82,13 @@ text{font-family:Inter,Helvetica,Arial,sans-serif;font-size:13px;fill:#1f2933}
 <rect class="chip" x="850" y="171" width="146" height="26" rx="13"/>
 <text class="code" x="863" y="188" text-anchor="start">version</text>
 <rect class="chip" x="1002" y="171" width="160" height="26" rx="13"/>
-<text class="code" x="1015" y="188" text-anchor="start">ci-gate</text>
+<text class="code" x="1015" y="188" text-anchor="start">release-documents</text>
 <rect class="chip" x="850" y="201" width="146" height="26" rx="13"/>
 <text class="code" x="863" y="218" text-anchor="start">compatibility</text>
 <rect class="chip" x="1002" y="201" width="160" height="26" rx="13"/>
-<text class="code" x="1015" y="218" text-anchor="start">release-declaration</text>
-<rect class="chip" x="850" y="231" width="146" height="26" rx="13"/>
-<text class="code" x="863" y="248" text-anchor="start">release-documents</text>
+<text class="code" x="1015" y="218" text-anchor="start">ci-gate</text>
+<rect class="chipo" x="850" y="231" width="146" height="26" rx="13"/>
+<text class="code" x="863" y="248" text-anchor="start">build-image</text>
 <rect class="chip" x="1002" y="231" width="160" height="26" rx="13"/>
 <text class="code" x="1015" y="248" text-anchor="start">release-manifest</text>
 <rect class="chip" x="850" y="261" width="146" height="26" rx="13"/>
@@ -95,12 +98,12 @@ text{font-family:Inter,Helvetica,Arial,sans-serif;font-size:13px;fill:#1f2933}
 <rect class="box green" x="836" y="310" width="340" height="80" rx="10"/>
 <text class="t" x="850" y="334" text-anchor="start">GitHub Release vX.Y.Z (draft)</text>
 <text class="s" x="850" y="352" text-anchor="start">assets: manifest, chart package, note,</text>
-<text class="s" x="850" y="370" text-anchor="start">declaration; published last, creating the tag</text>
+<text class="s" x="850" y="370" text-anchor="start">declaration; its publication creates the tag</text>
 <path class="arr" d="M1006,298 L1006,310"/>
 <rect class="box amber" x="836" y="406" width="340" height="34" rx="17"/>
 <text class="s" x="1006.0" y="428" text-anchor="middle">a release manager approves (release-publication)</text>
 <path class="arr" d="M1006,390 L1006,406"/>
-<rect class="box blue" x="836" y="456" width="340" height="394" rx="10"/>
+<rect class="box blue" x="836" y="456" width="340" height="428" rx="10"/>
 <text class="t" x="850" y="480" text-anchor="start">Publish release</text>
 <path class="arr" d="M1006,440 L1006,456"/>
 <rect class="chip" x="856" y="487" width="300" height="26" rx="13"/>
@@ -112,36 +115,40 @@ text{font-family:Inter,Helvetica,Arial,sans-serif;font-size:13px;fill:#1f2933}
 <rect class="chip" x="856" y="595" width="300" height="26" rx="13"/>
 <text class="code" x="869" y="612" text-anchor="start">publish-chart</text>
 <text class="lbl" x="1144" y="612" text-anchor="end">chart-file</text>
-<rect class="chipo" x="856" y="675" width="300" height="26" rx="13"/>
-<text class="code" x="869" y="692" text-anchor="start">publish-chart-s3</text>
-<text class="lbl" x="1144" y="692" text-anchor="end">if needed</text>
-<rect class="chip" x="856" y="719" width="300" height="26" rx="13"/>
-<text class="code" x="869" y="736" text-anchor="start">release-manifest complete</text>
-<rect class="chip" x="856" y="765" width="300" height="26" rx="13"/>
-<text class="code" x="869" y="782" text-anchor="start">notify-rm</text>
-<text class="lbl" x="1144" y="782" text-anchor="end">+ declaration</text>
-<rect class="chip" x="856" y="809" width="300" height="26" rx="13"/>
-<text class="code" x="869" y="826" text-anchor="start">draft-release publish</text>
-<text class="lbl" x="1144" y="826" text-anchor="end">last</text>
-<path class="flow" d="M1006,513 L1006,527"/>
-<path class="flow" d="M1006,553 L1006,595"/>
-<path class="flow" d="M1006,621 L1006,675"/>
-<path class="flow" d="M1006,701 L1006,719"/>
-<path class="flow" d="M1006,745 L1006,765"/>
-<path class="flow" d="M1006,791 L1006,809"/>
-<path class="arr" d="M1156,822 L1190,822 L1190,350 L1176,350"/>
+<rect class="chip" x="856" y="639" width="300" height="26" rx="13"/>
+<text class="code" x="869" y="656" text-anchor="start">release-manifest complete</text>
+<rect class="chip" x="856" y="683" width="300" height="26" rx="13"/>
+<text class="code" x="869" y="700" text-anchor="start">draft-release publish</text>
+<text class="lbl" x="1144" y="700" text-anchor="end">creates the tag</text>
+<rect class="chip" x="856" y="729" width="300" height="26" rx="13"/>
+<text class="code" x="869" y="746" text-anchor="start">notify-rm</text>
+<text class="lbl" x="1144" y="746" text-anchor="end">+ declaration</text>
+<rect class="chipo" x="856" y="823" width="300" height="26" rx="13"/>
+<text class="code" x="869" y="840" text-anchor="start">publish-chart-s3</text>
+<text class="lbl" x="1144" y="840" text-anchor="end">if needed</text>
+<path class="flow" d="M872,513 L872,527"/>
+<path class="flow" d="M872,553 L872,595"/>
+<path class="flow" d="M872,621 L872,639"/>
+<path class="flow" d="M872,665 L872,683"/>
+<path class="flow" d="M872,709 L872,729"/>
+<path class="flow" d="M872,755 L872,823"/>
+<path class="arr" d="M1156,696 L1190,696 L1190,350 L1176,350"/>
+<path class="arr dash" d="M850,244 L806,244 L806,514 L762,514"/>
+<text class="lbl" x="798" y="372" text-anchor="end">candidate image,</text>
+<text class="lbl" x="798" y="386" text-anchor="end">when built here</text>
 <path class="arr" d="M344,528 L432,528"/>
 <text class="lbl" x="388.0" y="522" text-anchor="middle">dev tag</text>
 <path class="arr" d="M344,608 L432,608"/>
 <text class="lbl" x="388.0" y="602" text-anchor="middle">charts/dev</text>
-<path class="arr" d="M344,778 L432,778"/>
-<text class="lbl" x="388.0" y="772" text-anchor="middle">dev build</text>
+<path class="arr" d="M344,742 L432,742"/>
+<text class="lbl" x="388.0" y="736" text-anchor="middle">dev build</text>
 <path class="arr" d="M856,540 L762,540"/>
-<text class="lbl" x="809.0" y="534" text-anchor="middle">release tag</text>
+<text class="lbl" x="809.0" y="554" text-anchor="middle">release tag</text>
 <path class="arr" d="M856,608 L762,608"/>
-<text class="lbl" x="809.0" y="602" text-anchor="middle">charts/stable</text>
-<path class="arr" d="M856,688 L762,688"/>
-<text class="lbl" x="809.0" y="682" text-anchor="middle">same .tgz</text>
-<path class="arr" d="M856,778 L762,778"/>
-<text class="lbl" x="809.0" y="772" text-anchor="middle">release</text>
-<metadata><c2pa:manifest>AAAWgmp1bWIAAAAeanVtZGMycGEAEQAQgAAAqgA4m3EDYzJwYQAAABZcanVtYgAAAEdqdW1kYzJtYQARABCAAACqADibcQN1cm46YzJwYTpiNDBlMWFhZi01YTQxLTQ4M2QtYmU5ZS1lOTAyZDE5MDM1N2EAAAADl2p1bWIAAAApanVtZGMyYXMAEQAQgAAAqgA4m3EDYzJwYS5hc3NlcnRpb25zAAAAALxqdW1iAAAARGp1bWRjYm9yABEAEIAAAKoAOJtxE2MycGEuaW5ncmVkaWVudC52MwAAAAAYYzJzaONEreRdUpnXCh/4YQRojCkAAABwY2JvcqNpZGM6Zm9ybWF0bWltYWdlL3N2Zyt4bWxqaW5zdGFuY2VJRHgseG1wOmlpZDo4YjMzZDYzNC0xYjlkLTRlZjItYmJhOC03Yjc1Y2I3OTI0YThscmVsYXRpb25zaGlwaHBhcmVudE9mAAAB4mp1bWIAAABBanVtZGNib3IAEQAQgAAAqgA4m3ETYzJwYS5hY3Rpb25zLnYyAAAAABhjMnNo28qXUFn0n4S6RO+GPJnSaAAAAZljYm9yomdhY3Rpb25zgqJmYWN0aW9ua2MycGEub3BlbmVkanBhcmFtZXRlcnOha2luZ3JlZGllbnRzgaJjdXJseC1zZWxmI2p1bWJmPWMycGEuYXNzZXJ0aW9ucy9jMnBhLmluZ3JlZGllbnQudjNkaGFzaFggnyzpCQ4kSDzwMe0I+RocBjzXm53Miq0k9mh8l27BQGWkZmFjdGlvbngdY29tLmFudGhyb3BpYy5jbGF1ZGUucHJvdmlkZWRqcGFyYW1ldGVyc6F4H2NvbS5hbnRocm9waWMub3JpZ2luLWNvbmZpZGVuY2VndW5rbm93bmtkZXNjcmlwdGlvbnhmQ2xhdWRlIHByb3ZpZGVkIHRoaXMgZmlsZSBhdCB0aGUgcmVxdWVzdCBvZiBhIHVzZXIgYW5kIG1heSBoYXZlIGNyZWF0ZWQgb3IgbW9kaWZpZWQgdGhlIGZpbGUgY29udGVudHMubXNvZnR3YXJlQWdlbnShZG5hbWVmQ2xhdWRlcmFsbEFjdGlvbnNJbmNsdWRlZPUAAADIanVtYgAAAEBqdW1kY2JvcgARABCAAACqADibcRNjMnBhLmhhc2guZGF0YQAAAAAYYzJzaN9JsFbaSKLP3DQee/cIgn0AAACAY2JvcqVjYWxnZnNoYTI1NmNwYWRMAAAAAAAAAAAAAAAAZGhhc2hYIOOiY1ZAavChMEw/ysAEglV3cKN0IyVl9aSyB2HeKadwZG5hbWVuanVtYmYgbWFuaWZlc3RqZXhjbHVzaW9uc4GiZXN0YXJ0GSo7Zmxlbmd0aBkeBAAAAj5qdW1iAAAAJ2p1bWRjMmNsABEAEIAAAKoAOJtxA2MycGEuY2xhaW0udjIAAAACD2Nib3KlY2FsZ2ZzaGEyNTZpc2lnbmF0dXJleE1zZWxmI2p1bWJmPS9jMnBhL3VybjpjMnBhOmI0MGUxYWFmLTVhNDEtNDgzZC1iZTllLWU5MDJkMTkwMzU3YS9jMnBhLnNpZ25hdHVyZWppbnN0YW5jZUlEeCx4bXA6aWlkOjc2OGE3ZjI3LWIwMDQtNGZiZS1hZDE4LThhN2MwMzE2MWIzYnJjcmVhdGVkX2Fzc2VydGlvbnODomN1cmx4LXNlbGYjanVtYmY9YzJwYS5hc3NlcnRpb25zL2MycGEuaW5ncmVkaWVudC52M2RoYXNoWCCfLOkJDiRIPPAx7Qj5GhwGPNebncyKrST2aHyXbsFAZaJjdXJseCpzZWxmI2p1bWJmPWMycGEuYXNzZXJ0aW9ucy9jMnBhLmFjdGlvbnMudjJkaGFzaFggPaRxcrXh1w6pv3IkO1isLRiB0BQV60pXI2hKB93UcQOiY3VybHgpc2VsZiNqdW1iZj1jMnBhLmFzc2VydGlvbnMvYzJwYS5oYXNoLmRhdGFkaGFzaFggm5CY/Gjt14Twut2KacFb6nU8uukJPJdS8NBsADf7WMB0Y2xhaW1fZ2VuZXJhdG9yX2luZm+jZG5hbWVvQW50aHJvcGljIEZpbGVzZ3ZlcnNpb25lMS4wLjBrc3BlY1ZlcnNpb25lMi40LjAAABA4anVtYgAAAChqdW1kYzJjcwARABCAAACqADibcQNjMnBhLnNpZ25hdHVyZQAAABAIY2JvctKEWQISogEmGCFZAgowggIGMIIBjaADAgECAhRA5aAK7sI50L64g/oGQgU9Z1UTADAKBggqhkjOPQQDAzBJMRcwFQYDVQQKEw5BbnRocm9waWMsIFBCQzEuMCwGA1UEAxMlQW50aHJvcGljIENvbnRlbnQgQ3JlZGVudGlhbHMgUm9vdCBDQTAeFw0yNjA4MDcxODQzNTZaFw0yODA4MDYxOTQzNTZaMEQxFzAVBgNVBAoTDkFudGhyb3BpYywgUEJDMSkwJwYDVQQDEyBBbnRocm9waWMgQ2xhdWRlIENvbnRlbnQgU2lnbmluZzBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABJh6CmvLUBgFFNU0vUKlOVtE6djd17L5SuwX0LemFisBM3dkd/3cyjxFA3Qo5S46fX0/ihY0VZ7mfb9KF703t5OjWDBWMA4GA1UdDwEB/wQEAwIHgDAVBgNVHSUEDjAMBgorBgEEAYPoXgIBMAwGA1UdEwEB/wQCMAAwHwYDVR0jBBgwFoAUzlHiBIFOZFsj+OPEz5o+nMHXXMIwCgYIKoZIzj0EAwMDZwAwZAIwMXMdFJ4BetLLVY7ORuE9noqbbAZOZn/aArXyTwFAZfKrPzxF2vPoJNf1+UCdg1XGAjBwX1zd9WGqYkqmL5SFqw1QySjr1zJfpJM9+1rdDwSPLMOPOjKuiXjoU/pUUeG9RwmhY3BhZFkNngAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPZYQHNL4/Wb7S8VrzAdKTskI4OU73/kWIdfbI3UQLx1vi9+hJbCScpQA93K04gepYPh8c4AoNuaWI5w2a5pXD0vj50=</c2pa:manifest></metadata></svg>
+<text class="lbl" x="809.0" y="602" text-anchor="middle">GA: stable</text>
+<text class="lbl" x="809.0" y="622" text-anchor="middle">pre: dev</text>
+<path class="arr" d="M856,836 L762,836"/>
+<text class="lbl" x="809.0" y="830" text-anchor="middle">same .tgz</text>
+<path class="arr" d="M856,742 L762,742"/>
+<text class="lbl" x="809.0" y="736" text-anchor="middle">release</text>
+</svg>
