@@ -12,6 +12,10 @@
 #                                        https:// only (http:// for 127.0.0.1
 #                                        and localhost): another URL is a
 #                                        failed declaration
+#   APP_VERSION                          optional: the application version
+#                                        the artifact ships, sent as
+#                                        app_version (default VERSION); the
+#                                        upstream release of an extra chart
 #   REPOSITORY, DIGEST, KIND (dev, ga, prerelease), COMMIT, BRANCH, RUN_URL,
 #   RELEASE_URL, RELEASED_AT (YYYY-MM-DD), NOTE_TITLE, NOTE_DESCRIPTION,
 #   META (extra key=value lines)         optional
@@ -108,6 +112,7 @@ manifest_source=$object_source
 jq -nc \
   --arg component "$COMPONENT" \
   --arg version "$VERSION" \
+  --arg app_version "${APP_VERSION:-$VERSION}" \
   --arg repository "${REPOSITORY:-}" \
   --arg digest "${DIGEST:-}" \
   --arg release_url "${RELEASE_URL:-}" \
@@ -126,7 +131,7 @@ jq -nc \
     component_id: $component,
     component_version: $version,
     source: "chart-release",
-    app_version: $version,
+    app_version: $app_version,
     repository: ($repository | opt),
     digest: ($digest | opt),
     release_url: ($release_url | opt),

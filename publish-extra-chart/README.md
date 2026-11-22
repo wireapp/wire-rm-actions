@@ -117,6 +117,10 @@ The path does not come from `release-manifest`: its `verify` mode refuses the
 chart-only manifest of an extra chart, so no step checks the package against
 a frozen sha256 before this one.
 
+In both cases the same value goes to [notify-rm](../notify-rm/README.md) as
+`app-version`, so the release manager records the upstream release next to
+the chart version.
+
 ## Why
 
 **A separate action, not an option of publish-chart.** `version ==

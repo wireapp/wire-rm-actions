@@ -29,6 +29,12 @@ inputs:
   version:
     description: The version.
     required: true
+  app-version:
+    description: >-
+      The application version the artifact ships, when it is not the version:
+      the upstream release of an extra chart (publish-extra-chart). Empty
+      sends the version.
+    default: ""
   kind:
     description: dev, ga or prerelease.
     default: dev
@@ -75,6 +81,7 @@ runs:
         RM_PROD_AUDIENCE: ${{ inputs.rm-prod-audience }}
         COMPONENT: ${{ inputs.component }}
         VERSION: ${{ inputs.version }}
+        APP_VERSION: ${{ inputs.app-version }}
         KIND: ${{ inputs.kind }}
         REPOSITORY: ${{ inputs.repository }}
         DIGEST: ${{ inputs.digest }}
