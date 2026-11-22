@@ -65,7 +65,7 @@ and this repository's own [`publication/`](../publication/).
 
 | Component ships | Dev build | Release |
 |---|---|---|
-| image and chart | [build-image](../build-image/README.md) at the version with provenance and SBOM (an expiring image without them), then [publish-chart](../publish-chart/README.md) to `oci://quay.io/wire/charts/dev/<name>` | [promote-image](../promote-image/README.md) tags the dev build's digest with the release tag, [publish-chart](../publish-chart/README.md) pushes the packaged chart of the draft to the `stable` channel for a GA |
+| image and chart | [build-image](../build-image/README.md) at the version with provenance and SBOM (an expiring image without them), then [publish-chart](../publish-chart/README.md) to `oci://quay.io/wire/charts/dev/<name>` | [promote-image](../promote-image/README.md) tags the candidate's digest with the release tag, [publish-chart](../publish-chart/README.md) pushes the packaged chart of the draft to the `stable` channel for a GA, to `dev` for a pre-release |
 | chart only | the same without the image (`chart-only: true` in the manifest) | the same without the image |
 | other files (a bundle, an archive) | `extra-artifacts-json` of the manifest, attached to the release | verified by sha256 against the manifest |
 | nothing (this repository) | no dev build | the tagged commit and the GitHub Release |
@@ -126,8 +126,9 @@ recovery path:
    its branch.
 2. The artifacts are promoted, never rebuilt: the image by digest, the chart
    from the asset. The manifest is completed with the published digests.
-3. [notify-rm](../notify-rm/README.md) declares the release, then the draft is
-   published, which creates the tag. Every step is idempotent, so a failed
+3. The draft is published, which creates the tag, and only then
+   [notify-rm](../notify-rm/README.md) declares the release: a release that is
+   not published is never declared. Every step is idempotent, so a failed
    publication is rerun. No action creates the `release/X.Y` line of a first GA
    yet: the step will be added when it is needed.
 

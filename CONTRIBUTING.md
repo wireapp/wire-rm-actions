@@ -47,9 +47,11 @@ This repository releases itself the way it asks components to
 commit and its GitHub Release.
 
 1. A release pull request on `dev`: `make release-prep VERSION=vX.Y.Z` points
-   `dev-build.yml` at `@vX.Y.Z`; `publication/release-note.md` and
+   `dev-build.yml` at `@vX.Y.Z` (the exact tag: `vX.Y.Z-rc.N` for a
+   pre-release, then again for the GA); `publication/release-note.md` and
    `publication/declaration.json` describe X.Y.Z (`make ci` validates them).
-2. Once merged, run the `Prepare release` workflow on `dev` (type, bump). It
+2. Once merged, run the `Prepare release` workflow on `dev` with the type and
+   the bump that give that version (`minor` for X.Y.0; the default is `patch`). It
    checks the inputs, the CI of the commit, the three publication files and
    the pinned refs, and creates the draft release with the note, the
    declaration and the compatibility file; the body carries the changelog and
@@ -59,5 +61,7 @@ commit and its GitHub Release.
    source commit and publishes it, which creates the tag `vX.Y.Z`.
 4. If the run is gone, dispatch `Publish release` with the version: the draft
    is found by tag.
+5. A candidate that went stale, or was rejected: delete its draft release,
+   then prepare again. A draft counts as an existing release.
 
 Consumers then pin the tag's commit SHA (README, "Pin a release").
