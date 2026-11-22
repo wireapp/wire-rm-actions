@@ -92,7 +92,8 @@ commit-msg-check:
 hooks:
 	git config core.hooksPath .githooks
 
-# Point dev-build.yml at the release about to be tagged: make release-prep VERSION=vX.Y.Z
+# Point dev-build.yml (and the templates) at the release about to be tagged:
+# make release-prep VERSION=vX.Y.Z[-<alpha|beta|rc>.N]
 release-prep:
-	@if [ -z "$(VERSION)" ]; then echo "usage: make release-prep VERSION=vX.Y.Z" >&2; exit 64; fi
+	@if [ -z "$(VERSION)" ]; then echo "usage: make release-prep VERSION=vX.Y.Z[-<alpha|beta|rc>.N]" >&2; exit 64; fi
 	scripts/set-release-ref.sh "$(VERSION)"
