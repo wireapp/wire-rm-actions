@@ -24,10 +24,14 @@ few fixes.
   (`chart-only: true`), such as a chart that repackages an upstream release.
 - This repository releases itself the way it asks components to: the three
   publication files, a prepare-release and a publish-release workflow, and
-  [docs/releasing.md](../docs/releasing.md) as the written contract.
+  [docs/releasing.md](https://github.com/wireapp/wire-rm-actions/blob/dev/docs/releasing.md) as the written contract.
 
 ## Upgrade
 
 Replace the pinned commit of `v0.1.0` with the one of `v0.2.0` in every
 `uses: wireapp/wire-rm-actions/...` line and in the reusable workflow
 reference. Dependabot proposes it.
+
+A workflow that passes `expires-after` to build-image together with an
+explicit `provenance` or `sbom` now fails before the build: drop the
+attestation inputs on expiring dev images.

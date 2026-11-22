@@ -48,12 +48,14 @@ Rules the actions enforce:
   explicit "nothing to declare", a missing section is an error. The file is
   valid for the component id and for the GA version of the release being
   prepared, and formatted (`jq --indent 2`).
-- A GA cannot start without the note and the declaration; a pre-release
-  warns. The components require all three files for a pre-release as well:
-  the files are written when the work is done, not on release day.
+- The actions refuse a GA without the note and the declaration, and only warn
+  for a pre-release. The components' workflows are stricter and require the
+  three files for a pre-release too: the files are written when the work is
+  done, not on release day.
 - The release manager can send a note and a declaration with its request
   (`release_note`, `release_declaration` dispatch inputs); the repository
-  file wins for the note unless the workflow says otherwise.
+  file wins for the note unless the workflow sets `note-input: override` on
+  [release-documents](../release-documents/README.md).
 
 Examples: [`testdata/compatibility/ok-my-component.yaml`](../testdata/compatibility/ok-my-component.yaml),
 [`testdata/release-declaration/valid-v1alpha2.json`](../testdata/release-declaration/valid-v1alpha2.json),
@@ -90,7 +92,7 @@ the job's OIDC token is the only credential.
 **Dev build**, on every push to the trunk and the release lines
 ([Quick start](../README.md#quick-start), or the
 [reusable workflow](../README.md#reusable-workflow) for a chart-only component):
-version, image, chart, manifest, declaration to the release managers.
+version, image, chart, manifest, and the version declared to the release managers.
 
 **Prepare release**, a `workflow_dispatch` on the trunk or a release line
 with `source_branch`, `type` (`alpha`, `beta`, `rc`, `ga`), `bump` (`patch`,
@@ -124,9 +126,10 @@ recovery path:
    its branch.
 2. The artifacts are promoted, never rebuilt: the image by digest, the chart
    from the asset. The manifest is completed with the published digests.
-3. The draft is published, which creates the tag; a first GA of a minor
-   creates `release/X.Y`; [notify-rm](../notify-rm/README.md) declares the
-   release. Every step is idempotent, so a failed publication is rerun.
+3. [notify-rm](../notify-rm/README.md) declares the release, then the draft is
+   published, which creates the tag. Every step is idempotent, so a failed
+   publication is rerun. No action creates the `release/X.Y` line of a first GA
+   yet: the step will be added when it is needed.
 
 ## Repository settings
 
@@ -146,7 +149,7 @@ recovery path:
 ## This repository
 
 wire-rm-actions is its own first component, with no artifact: a release is a
-signed commit of `dev`, tagged, with a GitHub Release whose body carries the
+commit of `dev`, tagged, with a GitHub Release whose body carries the
 release note, the changelog and the line consumers pin.
 
 - [`publication/`](../publication/) holds the three files. The compatibility
