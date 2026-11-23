@@ -66,6 +66,7 @@ runs:
       shell: bash
       env:
         BRANCH: ${{ github.head_ref || (github.ref_type == 'branch' && github.ref_name) || '' }}
+        BASE_BRANCH: ${{ github.base_ref }}
         TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
         RELEASE_BRANCHES: ${{ inputs.release-branches }}
         TAG_PREFIX: ${{ inputs.tag-prefix }}

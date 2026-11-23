@@ -149,6 +149,24 @@ def test_release_line_skips_the_anchor_of_another_line(repo: Path):
     assert _version(repo, BRANCH="dev")["version"].startswith("5.1.0-")
 
 
+# A pull request is built under the name of its own branch: the branch it
+# targets says which line it belongs to.
+@pytest.mark.parametrize(
+    "branch, base, start",
+    [
+        ("fix-x", "release/5.0", "5.0.81-"),
+        ("fix-x", "dev", "5.1.0-"),
+        ("fix-x", "", "5.1.0-"),
+        ("release/5.0", "dev", "5.0.81-"),
+    ],
+)
+def test_pull_request_reads_the_anchors_of_its_line(repo: Path, branch: str, base: str, start: str):
+    _git(repo, "tag", "v5.0.80")
+    _git(repo, "tag", "v5.1.0-0")
+    commit_file(repo, "a", "2", DATE, "next")
+    assert _version(repo, BRANCH=branch, BASE_BRANCH=base)["version"].startswith(start)
+
+
 def test_anchor_with_a_tag_prefix(repo: Path):
     _git(repo, "tag", "v9.0.0")
     _git(repo, "tag", "chart/v5.1.0-0")

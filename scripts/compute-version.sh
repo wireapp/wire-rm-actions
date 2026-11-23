@@ -13,7 +13,8 @@
 # An anchor X.Y.Z-0 says that the next release of the branch is X.Y.Z, where
 # no release tag would lead to it: a line cut from a history without release
 # tags, a jump in the numbering. It is never a version itself, so a tag build
-# refuses it. A release/X.Y branch reads the anchors of X.Y.* only.
+# refuses it. A release/X.Y branch reads the anchors of X.Y.* only, and so does
+# a pull request that targets it.
 #
 # <ts> is the committer date in UTC as YYYYMMDDHHMMSS, <sha7> the first 7
 # characters of the commit, <branch> the last segment of the branch name,
@@ -23,6 +24,9 @@
 # Environment (all optional):
 #   REF               commit to version (default HEAD)
 #   BRANCH            branch the build runs for; required unless TAG is set
+#   BASE_BRANCH       branch a pull request targets: when it is a release/X.Y
+#                     and BRANCH is not one, the build reads the anchors of
+#                     that line only, like the line itself
 #   TAG               the tag of a tag build; the version is the tag itself
 #   RELEASE_BRANCHES  regex of the dev/release branches
 #                     (default ^(dev|develop|release/.+|release-.+)$)
@@ -47,9 +51,14 @@ ga_re="^${num}\\.${num}\\.${num}\$"
 pre_re="^${num}\\.${num}\\.${num}-(alpha|beta|rc)\\.[1-9][0-9]*\$"
 anchor_re="^${num}\\.${num}\\.${num}-0\$"
 
-# The line of a release/X.Y branch.
+# The line of a release/X.Y branch, else of the one a pull request targets.
 line=""
-[[ $branch =~ ^release/([0-9]+\.[0-9]+)$ ]] && line=${BASH_REMATCH[1]}
+for candidate in "$branch" "${BASE_BRANCH:-}"; do
+  if [[ $candidate =~ ^release/([0-9]+\.[0-9]+)$ ]]; then
+    line=${BASH_REMATCH[1]}
+    break
+  fi
+done
 
 # tag_version <tag> [base]: the version a source tag names, or nothing for a
 # tag of another form. An anchor counts only as the base of a dev build, and

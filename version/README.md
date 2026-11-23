@@ -108,8 +108,8 @@ next explicit version of a branch, from the release tags reachable from it:
   `X.Y.Z` or `X.Y.Z-<channel>.1`. An anchor is never a version itself: a tag
   build refuses it and no release carries it. A `release/X.Y` branch reads
   the anchors of `X.Y.*` only, so the anchor of the next minor may sit on the
-  commit a line starts from; a pull request reads them all, whatever its
-  base. An anchor is a tag like any other: where a ruleset forbids moving and
+  commit a line starts from; a pull request to a line reads the anchors of
+  that line too. An anchor is a tag like any other: where a ruleset forbids moving and
   deleting `v*` tags it stays for good, and one that names too high a version
   blocks the releases of its scope until an administrator removes it. A
   higher anchor on the same commit, or another one on a later commit,
