@@ -63,7 +63,7 @@ def _run(**env: str) -> subprocess.CompletedProcess:
     clean = {
         k: v
         for k, v in os.environ.items()
-        if not k.startswith(("RM_", "GITHUB_")) and k != "REQUIRED"
+        if not k.startswith(("RM_", "GITHUB_")) and k not in ("REQUIRED", "APP_VERSION")
     }
     base = {"COMPONENT": "my-component", "VERSION": "4.24.3-20261005135125.gabcdef0"}
     return subprocess.run(
@@ -96,6 +96,18 @@ def test_declares_to_both(rms):
     assert record["digest"] == "sha256:aa"
     assert record["meta"] == {"build": "dev", "team": "web"}
     assert "repository" not in record and "release_note" not in record
+
+
+# A Wire chart ships the version it carries; an extra chart ships an upstream
+# release, which the release manager keeps as the application version.
+@pytest.mark.parametrize("given, sent", [("", "4.24.3-20261005135125.gabcdef0"), ("3.5.7", "3.5.7")])
+def test_app_version_defaults_to_the_version(rms, given, sent):
+    staging, _ = rms
+    result = _run(RM_STAGING_URL=staging.url, RM_STAGING_TOKEN="t", APP_VERSION=given)
+    assert result.returncode == 0, result.stderr
+    record = staging.calls[0]["body"][0]
+    assert record["component_version"] == "4.24.3-20261005135125.gabcdef0"
+    assert record["app_version"] == sent
 
 
 def test_release_fields(rms):

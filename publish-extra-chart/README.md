@@ -1,0 +1,129 @@
+[wire-rm-actions](../README.md) ·
+[version](../version/README.md) ·
+[build-image](../build-image/README.md) ·
+[quay-login](../quay-login/README.md) ·
+[publish-chart](../publish-chart/README.md) ·
+[notify-rm](../notify-rm/README.md) ·
+[changelog](../changelog/README.md) ·
+[release-declaration](../release-declaration/README.md) ·
+[release-documents](../release-documents/README.md) ·
+[release-manifest](../release-manifest/README.md) ·
+[compatibility](../compatibility/README.md) ·
+[release-inputs](../release-inputs/README.md) ·
+[release-source](../release-source/README.md) ·
+[promote-image](../promote-image/README.md) ·
+[ci-gate](../ci-gate/README.md) ·
+[draft-release](../draft-release/README.md) ·
+[publish-chart-s3](../publish-chart-s3/README.md) ·
+**publish-extra-chart**
+
+# publish-extra-chart
+
+> Push an extra chart, one that repackages an upstream release, to the Wire
+> OCI layout with its own version and appVersion, never overwriting a version
+> that is already published.
+
+## Definition
+
+Wire charts go through [publish-chart](../publish-chart/README.md), where the
+chart `version` and `appVersion` are the same build version (ADR-0018). Extra
+charts do not fit that rule: a wrapper of cert-manager, keycloakx or loki
+names the upstream release in its `appVersion`, maintained by hand, while its
+own `version` comes from the [version](../version/README.md) action.
+
+`publish-extra-chart` pushes such a chart to
+`oci://<registry>/wire/charts/<channel>/<name>` (ADR-0012), in the two modes
+of publish-chart and with the same guarantees: a published version is never
+overwritten, its digest is read back, and a dev chart can expire on Quay.
+
+- `chart-path`: the chart directory is packaged here, with `version` set to
+  the build version and `appVersion` to `app-version`. For dev builds.
+- `chart-file`: at publication, the package of the draft release, the one
+  that was prepared and approved, is pushed as is, never repackaged. Its
+  `appVersion` must be `app-version`.
+
+## Technical reference
+
+### Inputs
+
+| Input | Required | Default | Description |
+|---|---|---|---|
+| `chart-path` | one of the two | | Path of the chart directory to package. |
+| `chart-file` | one of the two | | Path of a packaged chart, `<name>-<version>.tgz`, pushed as is. |
+| `version` | with `chart-path` | | The chart version, from [version](../version/README.md); with `chart-file`, checked against the package when given. |
+| `app-version` | yes | | The `appVersion` of the package: the upstream release, usually read from `Chart.yaml`. With `chart-file`, the package must have it. |
+| `chart-name` | no | the `Chart.yaml` name | Chart name in the registry; checked against the package with `chart-file`. |
+| `registry` | no | `quay.io` | OCI registry host. |
+| `channel` | no | `dev` | Registry channel: `dev` or `stable`. |
+| `expires-after` | no | `""` | Dev channel and `chart-path` only: Quay deletes the version after this delay (`90d`, or hours `h`, days `d`, weeks `w`). Empty keeps it. |
+| `attempts` | no | `1` | `chart-file` only: how many times to try the push, 10 s apart, as in publish-chart. |
+| `username` | no | `""` | Registry user (a Quay robot account); empty when the job is already logged in ([quay-login](../quay-login/README.md)). |
+| `password` | no | `""` | Registry password or token, with `username`. |
+
+### Outputs
+
+Same as publish-chart: `repository`, `digest`, and `status` (`pushed`, or
+`present` when the version was already in the registry).
+
+### Requirements
+
+- Helm 3.8 or later on `PATH` (`azure/setup-helm`).
+- Write access to `<registry>/wire/charts/<channel>/<name>`.
+- With `expires-after`: `oras` (`oras-project/setup-oras`) and `jq` on `PATH`.
+
+### Behaviour
+
+The steps of publish-chart. With `chart-path`, the package is made with
+`helm package --version <version> --app-version <app-version>`. With
+`chart-file`, the package is checked (name, version, `appVersion ==
+app-version`) and pushed as is: the prepare-release workflow packages it
+once, with the same `helm package` call, and attaches it to the draft
+release.
+
+## Example
+
+```yaml
+      - name: Read the upstream release of the chart
+        id: chart
+        run: echo "app-version=$(yq '.appVersion // ""' charts/loki-wrapper/Chart.yaml)" >>"$GITHUB_OUTPUT"
+
+      - uses: wireapp/wire-rm-actions/publish-extra-chart@<sha> # vX.Y.Z
+        with:
+          chart-path: charts/loki-wrapper
+          version: ${{ steps.version.outputs.version }}
+          app-version: ${{ steps.chart.outputs.app-version || steps.version.outputs.version }}
+          channel: dev
+          expires-after: 90d
+          username: ${{ steps.quay.outputs.username }}
+          password: ${{ steps.quay.outputs.token }}
+```
+
+A chart whose `Chart.yaml` has no `appVersion` falls back to its version, so
+the input is never empty. At publication, the approved package among the
+assets of the draft release ([draft-release](../draft-release/README.md),
+`resolve`), with the same fallback:
+
+```yaml
+      - uses: wireapp/wire-rm-actions/publish-extra-chart@<sha> # vX.Y.Z
+        with:
+          chart-file: ${{ steps.draft.outputs.asset-dir }}/loki-wrapper-${{ inputs.version }}.tgz
+          version: ${{ inputs.version }}
+          app-version: ${{ steps.chart.outputs.app-version || inputs.version }}
+          channel: stable
+          attempts: 3
+```
+
+The path does not come from `release-manifest`: its `verify` mode refuses the
+chart-only manifest of an extra chart, so no step checks the package against
+a frozen sha256 before this one.
+
+In both cases the same value goes to [notify-rm](../notify-rm/README.md) as
+`app-version`, so the release manager records the upstream release next to
+the chart version.
+
+## Why
+
+**A separate action, not an option of publish-chart.** `version ==
+appVersion` stays a hard rule for Wire charts: nothing in publish-chart can
+turn it off. Choosing this action is the visible, reviewable exception, kept
+to charts that only repackage an upstream release.

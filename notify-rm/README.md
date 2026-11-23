@@ -14,7 +14,8 @@
 [promote-image](../promote-image/README.md) ·
 [ci-gate](../ci-gate/README.md) ·
 [draft-release](../draft-release/README.md) ·
-[publish-chart-s3](../publish-chart-s3/README.md)
+[publish-chart-s3](../publish-chart-s3/README.md) ·
+[publish-extra-chart](../publish-extra-chart/README.md)
 
 # notify-rm
 
@@ -37,6 +38,7 @@ date, their release note and, optionally, their
 |---|---|---|---|
 | `component` | yes | | Release manager component id. |
 | `version` | yes | | The version, from [version](../version/README.md). |
+| `app-version` | no | the version | The application version the artifact ships, sent as `app_version`: the upstream release of an extra chart ([publish-extra-chart](../publish-extra-chart/README.md)). |
 | `kind` | no | `dev` | `dev`, `ga` or `prerelease` (sent as `meta.build`). |
 | `rm-staging-url` | no | `""` | Staging release manager base URL. Empty skips it with a warning. |
 | `rm-staging-token` | no | `""` | Ingest token of the staging release manager, bound to the component. |

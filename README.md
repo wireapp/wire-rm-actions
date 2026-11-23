@@ -43,6 +43,7 @@ flowchart LR
 | 🚦 | [**ci-gate**](ci-gate/README.md) | Refuses a release preparation when a release or tag already exists for the version, or when the CI checks of the source commit did not pass (`force` bypass, logged). |
 | 🗂️ | [**draft-release**](draft-release/README.md) | Creates the draft GitHub Release of a candidate with its assets, resolves and downloads it at publication, and publishes it last (the tag is born there). |
 | 🪣 | [**publish-chart-s3**](publish-chart-s3/README.md) | Interim: pushes a packaged chart to an S3 Helm repository (helm-s3) for the deployments that still read one, never overwriting a published version. |
+| 🧳 | [**publish-extra-chart**](publish-extra-chart/README.md) | For extra charts that repackage an upstream release: packages the chart with its own version and appVersion and pushes it like publish-chart, never overwriting a published version. |
 
 Each action has its own page: definition, inputs and outputs, a copy-paste
 example, and the reasons behind its design.

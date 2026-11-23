@@ -79,6 +79,8 @@ runs:
         CHANNEL: ${{ inputs.channel }}
         EXPIRES_AFTER: ${{ inputs.expires-after }}
         ATTEMPTS: ${{ inputs.attempts }}
+        # Never inherited from the job: a Wire chart has appVersion == version.
+        APP_VERSION: ""
       run: "$GITHUB_ACTION_PATH/../scripts/publish-chart.sh"
     # The login lands in the helm registry config on the runner's disk: removed
     # here, even on failure, when this action made it, so the later steps of
