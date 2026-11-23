@@ -62,13 +62,15 @@ assets_of() {
 # The commit a tag points to (annotated tags dereferenced), empty when the tag does not exist.
 tag_commit() {
   local tag="$1" object type sha
+  # The || return 1 is not optional: the callers run this in a command substitution on the
+  # left of an ||, where errexit does not reach it, and an API error would read as no tag.
   object="$(gh api "repos/${REPO}/git/matching-refs/tags/${tag}" \
-    | jq -c --arg ref "refs/tags/${tag}" '[.[] | select(.ref == $ref) | .object] | first')"
+    | jq -c --arg ref "refs/tags/${tag}" '[.[] | select(.ref == $ref) | .object] | first')" || return 1
   [[ "$object" != null ]] || return 0
   type="$(jq -r '.type' <<<"$object")"
   sha="$(jq -r '.sha' <<<"$object")"
   while [[ "$type" == tag ]]; do
-    object="$(gh api "repos/${REPO}/git/tags/${sha}" | jq -c '.object')"
+    object="$(gh api "repos/${REPO}/git/tags/${sha}" | jq -c '.object')" || return 1
     type="$(jq -r '.type' <<<"$object")"
     sha="$(jq -r '.sha' <<<"$object")"
   done
