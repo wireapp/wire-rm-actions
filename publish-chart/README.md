@@ -15,7 +15,8 @@
 [ci-gate](../ci-gate/README.md) ·
 [draft-release](../draft-release/README.md) ·
 [publish-chart-s3](../publish-chart-s3/README.md) ·
-[publish-extra-chart](../publish-extra-chart/README.md)
+[publish-extra-chart](../publish-extra-chart/README.md) ·
+[wire-builds-bump](../wire-builds-bump/README.md)
 
 # publish-chart
 
@@ -95,6 +96,9 @@ version is a no-op, another content a failure.
    step waits 10 s and starts again from point 2: a chart that landed despite
    the error is a no-op (same sha256) or a failure (another content), never
    pushed twice. The step fails when the last attempt fails.
+   After a `chart-file` push, the chart is pulled back: it must have the
+   sha256 of the given file (so the same `version` and `appVersion`) and the
+   digest the push printed, or the step fails.
 4. With `expires-after`, the pushed manifest gets the `quay.expires-after`
    annotation (rewritten with `oras`, as `helm push` cannot set it), and the
    digest output is that of the annotated manifest. A `stable` chart never

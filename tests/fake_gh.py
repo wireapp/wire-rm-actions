@@ -2,7 +2,8 @@
 
 Not a test module: the tests install it first on PATH as `gh`. The state ($FAKE_GH_STATE) holds
 releases, assets (content in files), tag refs, annotated tags, check runs, statuses, workflow
-runs, branch rules and branch names (`branches`); every call is appended to $FAKE_GH_LOG as one
+runs, branch rules, branch names (`branches`) and files (`contents`, "<branch>:<path>" -> text,
+with `contents_race`: texts another commit lands right before each PUT); every call is appended to $FAKE_GH_LOG as one
 JSON line. `--jq` runs the real jq (-r) on the answer. `list_lag` hides newly created releases
 from that many list calls (eventual consistency).
 """
@@ -155,6 +156,38 @@ def api(args: list[str]) -> None:
         if m[1] not in state.get("branches", []):
             fail("HTTP 404: Branch not found")
         out({"name": m[1]})
+    elif m := re.fullmatch(r"contents/(.+)", route):
+        import base64
+        import hashlib
+
+        params = dict(p.split("=", 1) for p in query.split("&") if p)
+        files = state.setdefault("contents", {})
+
+        def blob(text: str) -> str:
+            return hashlib.sha1(text.encode()).hexdigest()
+
+        if method == "GET":
+            key = f"{params.get('ref', 'dev')}:{m[1]}"
+            if key not in files:
+                fail(f"HTTP 404: {key}")
+            text = files[key]
+            out({"sha": blob(text), "content": base64.encodebytes(text.encode()).decode()})
+        elif method == "PUT":
+            body = json.loads(Path(input_file).read_text())
+            key = f"{body['branch']}:{m[1]}"
+            race = state.get("contents_race", [])
+            if race:
+                files[key] = race.pop(0)
+                save(state)
+            if key not in files or blob(files[key]) != body["sha"]:
+                fail(f"HTTP 409: {m[1]} does not match {body['sha']}")
+            files[key] = base64.b64decode(body["content"]).decode()
+            commits = state.setdefault("commits", [])
+            commits.append(body["message"])
+            save(state)
+            out({"commit": {"sha": f"{len(commits):040x}"}})
+        else:
+            fail(f"fake gh api: unexpected call {method} {path}", 2)
     elif m := re.fullmatch(r"rules/branches/(.+)", route):
         out(state.get("rules", {}).get(m[1], []))
     else:

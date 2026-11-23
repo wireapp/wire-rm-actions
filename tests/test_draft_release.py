@@ -16,6 +16,7 @@ KEYS = (
     "REPO", "MODE", "VERSION", "TAG_PREFIX", "TARGET", "TITLE", "BODY_FILE", "PRERELEASE", "ASSETS",
     "RELEASE_ID", "EXPECTED_COMMIT", "ASSET_DIR", "DOWNLOAD", "MANIFEST_NAME", "REPLACE_ASSETS",
     "MAKE_LATEST", "SOURCE_REF", "LATEST_BRANCHES", "CREATE_ATTEMPTS", "CREATE_DELAY", "RUNNER_TEMP",
+    "IF_PUBLISHED",
 )
 MANIFEST = {
     "version": "1.41.4",
@@ -200,10 +201,12 @@ def test_resolve_refuses_a_path_in_the_manifest(draft, tmp_path):
 @pytest.mark.parametrize(
     "change, env, message",
     [
-        ({"draft": False}, {"RELEASE_ID": "101"}, "is not a draft"),
+        ({"draft": False}, {"RELEASE_ID": "101", "IF_PUBLISHED": "fail"}, "is not a draft"),
+        ({"draft": False}, {"RELEASE_ID": "101"}, "is published but its tag v1.41.4 does not exist"),
         ({"tag_name": "v9.9.9"}, {"RELEASE_ID": "101"}, "expected 'v1.41.4'"),
         ({}, {"EXPECTED_COMMIT": OTHER}, f"expected '{OTHER}'"),
-        ({"draft": False}, {}, "expected exactly one draft release for tag v1.41.4, found 0"),
+        ({"draft": False}, {"IF_PUBLISHED": "fail"}, "expected exactly one draft release for tag v1.41.4, found 0"),
+        ({}, {"IF_PUBLISHED": "maybe"}, "if-published must be resume or fail"),
     ],
 )
 def test_resolve_refuses(draft, tmp_path, change, env, message):
@@ -302,9 +305,126 @@ def test_make_latest_auto_needs_the_source_ref(draft, tmp_path):
 
 def test_publish_refuses_a_published_release(draft, tmp_path):
     draft.state["releases"][0]["draft"] = False
-    result = _run(draft, tmp_path, MODE="publish", RELEASE_ID="101", MAKE_LATEST="false")
+    result = _run(draft, tmp_path, MODE="publish", RELEASE_ID="101", MAKE_LATEST="false", IF_PUBLISHED="fail")
     assert result.returncode == 1
     assert "is not a draft" in result.stderr
+
+
+@pytest.fixture
+def published(draft, tmp_path):
+    """The draft published by a first run, its manifest completed."""
+    completed = tmp_path / "first-run.json"
+    completed.write_text(json.dumps({**MANIFEST, "publication": {"published_at": "2026-11-07T08:00:00Z"}}))
+    result = _run(
+        draft, tmp_path, MODE="publish", RELEASE_ID="101", SOURCE_REF="dev",
+        REPLACE_ASSETS=f"release-manifest.json={completed}\n",
+    )
+    assert result.returncode == 0, result.stderr
+    draft.load()
+    return draft
+
+
+def _rerun_manifest(tmp_path, **change) -> Path:
+    path = tmp_path / "second-run.json"
+    path.write_text(json.dumps({**MANIFEST, **change, "publication": {"published_at": "2026-11-07T09:30:00Z"}}))
+    return path
+
+
+def test_resolve_resumes_a_published_release(published, tmp_path):
+    result = _run(published, tmp_path, MODE="resolve", DOWNLOAD="manifest-files", ASSET_DIR=str(tmp_path / "again"))
+    assert result.returncode == 0, result.stderr
+    out = outputs(result)
+    assert out["id"] == "101"
+    assert out["already-published"] == "true"
+    assert out["tag-exists"] == "true"
+    manifest = json.loads(Path(out["manifest"]).read_text())
+    assert manifest["publication"]["published_at"] == "2026-11-07T08:00:00Z"
+    assert "already published" in result.stderr
+
+
+def test_resolve_of_a_draft_is_not_published(draft, tmp_path):
+    result = _run(draft, tmp_path, MODE="resolve")
+    assert result.returncode == 0, result.stderr
+    assert outputs(result)["already-published"] == "false"
+
+
+def test_publish_resumes_without_writing(published, tmp_path):
+    before = len(published.calls())
+    summary = tmp_path / "summary.md"
+    result = _run(
+        published, tmp_path, MODE="publish", RELEASE_ID="101", SOURCE_REF="dev", EXPECTED_COMMIT=SHA,
+        REPLACE_ASSETS=f"release-manifest.json={_rerun_manifest(tmp_path)}\n", GITHUB_STEP_SUMMARY=str(summary),
+    )
+    assert result.returncode == 0, result.stderr
+    out = outputs(result)
+    assert out["already-published"] == "true"
+    assert out["make-latest"] == "unchanged"
+    assert out["url"] == f"https://github.com/{REPO}/releases/tag/v1.41.4"
+    calls = published.calls()[before:]
+    assert not any(c[:3] in (["api", "--method", "PATCH"], ["api", "--method", "POST"], ["api", "--method", "DELETE"]) for c in calls)
+    asset = next(a for a in published.load()["assets"]["101"] if a["name"] == "release-manifest.json")
+    assert json.loads(Path(asset["file"]).read_text())["publication"]["published_at"] == "2026-11-07T08:00:00Z"
+    assert "Release already published" in summary.read_text()
+
+
+def test_publish_resumes_by_tag(published, tmp_path):
+    result = _run(published, tmp_path, MODE="publish", SOURCE_REF="dev")
+    assert result.returncode == 0, result.stderr
+    assert outputs(result)["already-published"] == "true"
+
+
+def test_publish_resume_compares_other_assets_byte_for_byte(published, tmp_path, files):
+    result = _run(published, tmp_path, MODE="publish", REPLACE_ASSETS=str(files / "release-note.md"))
+    assert result.returncode == 0, result.stderr
+    changed = tmp_path / "release-note.md"
+    changed.write_text("# 1.41.4, rewritten\n")
+    result = _run(published, tmp_path, MODE="publish", REPLACE_ASSETS=str(changed))
+    assert result.returncode == 1
+    assert "already published with another release-note.md" in result.stderr
+
+
+@pytest.mark.parametrize(
+    "change, message",
+    [
+        ({"version": "1.41.5"}, "already published with another release-manifest.json"),
+        ({"artifacts": []}, "already published with another release-manifest.json"),
+    ],
+)
+def test_publish_resume_refuses_another_manifest(published, tmp_path, change, message):
+    result = _run(
+        published, tmp_path, MODE="publish", RELEASE_ID="101",
+        REPLACE_ASSETS=f"release-manifest.json={_rerun_manifest(tmp_path, **change)}\n",
+    )
+    assert result.returncode == 1
+    assert message in result.stderr
+
+
+def test_publish_resume_refuses_a_missing_asset(published, tmp_path):
+    extra = tmp_path / "new-asset.txt"
+    extra.write_text("x")
+    result = _run(published, tmp_path, MODE="publish", REPLACE_ASSETS=str(extra))
+    assert result.returncode == 1
+    assert "is not on the published release" in result.stderr
+
+
+def test_resume_refuses_another_commit(published, tmp_path):
+    result = _run(published, tmp_path, MODE="publish", EXPECTED_COMMIT=OTHER)
+    assert result.returncode == 1
+    assert f"expected '{OTHER}'" in result.stderr
+
+
+def test_resume_refuses_a_moved_tag(published, tmp_path):
+    published.state["refs"] = [{"ref": "refs/tags/v1.41.4", "object": {"type": "commit", "sha": OTHER}}]
+    result = _run(published, tmp_path, MODE="resolve")
+    assert result.returncode == 1
+    assert f"already exists at {OTHER}" in result.stderr
+
+
+def test_resume_refuses_a_draft_next_to_the_published_release(published, tmp_path):
+    published.state["releases"].append({**published.state["releases"][0], "id": 102, "draft": True})
+    result = _run(published, tmp_path, MODE="resolve")
+    assert result.returncode == 1
+    assert "has a published release and 1 draft(s)" in result.stderr
 
 
 def test_tag_prefix(gh, tmp_path, files):
