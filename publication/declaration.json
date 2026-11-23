@@ -2,7 +2,7 @@
   "schemaVersion": "wire.component-release/v1alpha2",
   "component": "wire-rm-actions",
   "version": "0.2.0",
-  "summary": "Clearer release manager refusals, dev images that expire, safer chart publication, chart-only manifests. No input changes: repin the actions.",
+  "summary": "Clearer release manager refusals, dev images that expire, safer chart publication, chart-only manifests, a new action for extra charts. No change to existing inputs: repin the actions.",
   "upgrade_from": ">=0.1.0",
   "changes": [
     {
@@ -36,6 +36,22 @@
       "links": [
         "https://github.com/wireapp/wire-rm-actions/pull/12",
         "https://github.com/wireapp/wire-rm-actions/pull/9"
+      ]
+    },
+    {
+      "kind": "fixed",
+      "description": "publish-chart builds the dependencies of an apiVersion v1 chart (requirements.yaml) and skips the build when they are all in charts/.",
+      "breaking": false,
+      "links": [
+        "https://github.com/wireapp/wire-rm-actions/pull/13"
+      ]
+    },
+    {
+      "kind": "added",
+      "description": "publish-extra-chart pushes a chart that repackages an upstream release, with its own appVersion; notify-rm takes it as app-version.",
+      "breaking": false,
+      "links": [
+        "https://github.com/wireapp/wire-rm-actions/pull/13"
       ]
     },
     {

@@ -1,9 +1,9 @@
 # wire-rm-actions 0.2.0
 
 The second release of the shared actions, from the first weeks of use by the
-components. Nothing changes in the inputs of the actions: a workflow pinned at
-0.1.0 keeps working when it moves to 0.2.0, and gets clearer messages and a
-few fixes.
+components. Nothing changes in the existing inputs of the actions: a workflow
+pinned at 0.1.0 keeps working when it moves to 0.2.0, and gets clearer
+messages, a few fixes and a new action for extra charts.
 
 ## What changes
 
@@ -19,7 +19,12 @@ few fixes.
 - **publish-chart** creates the destination of `helm pull`, so the presence
   check works again, and stops when that check fails for another reason than
   an absent version: a network error or a 5xx no longer pushes over a
-  published version.
+  published version. It builds the dependencies of an `apiVersion: v1` chart
+  (`requirements.yaml`) and skips the build when they are all in `charts/`.
+- **publish-extra-chart**, new: pushes a chart that repackages an upstream
+  release, with its own `appVersion`, where publish-chart keeps `appVersion`
+  equal to the version. **notify-rm** takes the same value as `app-version`,
+  so the release manager records the upstream release.
 - **release-manifest** writes the manifest of a chart-only component
   (`chart-only: true`), such as a chart that repackages an upstream release.
 - **version** reads an anchor tag `vX.Y.Z-0`: it names the next release of a
