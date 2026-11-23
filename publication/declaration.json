@@ -48,6 +48,14 @@
     },
     {
       "kind": "added",
+      "description": "version reads an anchor tag vX.Y.Z-0, which names the next release of a branch where no release tag leads to it.",
+      "breaking": false,
+      "links": [
+        "https://github.com/wireapp/wire-rm-actions/pull/10"
+      ]
+    },
+    {
+      "kind": "added",
       "description": "The repository releases itself with the standard publication files and workflows, documented in docs/releasing.md.",
       "breaking": false,
       "links": []

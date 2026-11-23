@@ -20,6 +20,11 @@ all. The contract is the same; the artifact steps are the part that varies.
   `X.Y.Z-rc.N.<timestamp>.g<sha7>` after a pre-release; outside the trunk and
   the release lines it also carries the branch
   ([version](../version/README.md)). Dev builds expire; releases do not.
+- Where no release tag leads to the next version of a branch (a line cut from
+  a history without release tags, a jump in the numbering, the next minor on
+  the trunk), an anchor tag `vX.Y.Z-0` names it: the next release is `X.Y.Z`
+  and the dev builds until then are `X.Y.Z-<timestamp>.g<sha7>`. An anchor is
+  never a version.
 - A published version is never overwritten: not a tag, not an image tag, not
   a chart version, not a release. A rerun finds what is there and goes on.
 - The trunk is `dev`, the default branch. A maintained line is
