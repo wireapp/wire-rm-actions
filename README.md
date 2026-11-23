@@ -6,22 +6,7 @@
 One version per build, one chart layout, one way to tell the release manager
 what was built.
 
-```mermaid
-flowchart LR
-    checkout["checkout<br/>fetch-depth: 0"] --> version
-    version --> images["build-image"]
-    images --> chart["publish-chart"]
-    chart --> notify["notify-rm"]
-    declaration["release-declaration"] -. releases .-> notify
-    compatibility -. manifest .-> notify
-    changelog -. releases .-> ghrelease["GitHub Release"]
-    notify --> rm[("release managers<br/>staging + prod")]
-    subgraph release["release (prepare, then publish on approval)"]
-        inputs["release-inputs"] --> source["release-source"] --> rversion["version<br/>mode: release"]
-        rversion --> documents["release-documents"] --> manifest["release-manifest"]
-        manifest --> promote["promote-image"] --> rchart["publish-chart<br/>chart-file"]
-    end
-```
+![How a component publishes with wire-rm-actions: dev build, prepare release, publish release](docs/release-flow.svg)
 
 ## The actions
 
@@ -41,7 +26,7 @@ flowchart LR
 | 🌿 | [**release-source**](release-source/README.md) | The source of a candidate: checks the branch exists, records the commit the checkout is at, and writes the identity of the candidate (version, channel, commits since the previous release) to the job summary. |
 | 🚀 | [**promote-image**](promote-image/README.md) | Gives the candidate image its release tag by digest, without any rebuild; idempotent, never overwrites. |
 | 🚦 | [**ci-gate**](ci-gate/README.md) | Refuses a release preparation when a release or tag already exists for the version, or when the CI checks of the source commit did not pass (`force` bypass, logged). |
-| 🗂️ | [**draft-release**](draft-release/README.md) | Creates the draft GitHub Release of a candidate with its assets, resolves and downloads it at publication, and publishes it last (the tag is born there). |
+| 🗂️ | [**draft-release**](draft-release/README.md) | Creates the draft GitHub Release of a candidate with its assets, resolves and downloads it at publication, and publishes it once the artifacts are out (the tag is born there). |
 | 🪣 | [**publish-chart-s3**](publish-chart-s3/README.md) | Interim: pushes a packaged chart to an S3 Helm repository (helm-s3) for the deployments that still read one, never overwriting a published version. |
 | 🧳 | [**publish-extra-chart**](publish-extra-chart/README.md) | For extra charts that repackage an upstream release: packages the chart with its own version and appVersion and pushes it like publish-chart, never overwriting a published version. |
 
@@ -124,9 +109,9 @@ then [version](version/README.md) in release mode, the
 [draft release](draft-release/README.md). Publication verifies the manifest,
 runs [promote-image](promote-image/README.md),
 [publish-chart](publish-chart/README.md) with `chart-file`, completes the
-manifest, declares it with [notify-rm](notify-rm/README.md) (with the
-`release-declaration-file` input) and ends with the publication of the draft
-GitHub Release, which creates the tag.
+manifest, publishes the draft GitHub Release, which creates the tag, and only
+then declares the release with [notify-rm](notify-rm/README.md) (with the
+`release-declaration-file` input).
 
 ## Reusable workflow
 
