@@ -2,7 +2,7 @@
   "schemaVersion": "wire.component-release/v1alpha2",
   "component": "wire-rm-actions",
   "version": "0.2.0",
-  "summary": "Clearer release manager refusals, dev images that expire, safer chart publication, chart-only manifests, a new action for extra charts. No change to existing inputs: repin the actions.",
+  "summary": "Clearer release manager refusals, dev images that expire, safer chart publication, chart-only manifests, a new action for extra charts. Existing inputs are unchanged, except one build-image combination that now fails (see the note): repin the actions.",
   "upgrade_from": ">=0.1.0",
   "changes": [
     {
@@ -23,8 +23,8 @@
     },
     {
       "kind": "fixed",
-      "description": "build-image builds an image that expires without attestations, so dev images expire on Quay; expires-after with provenance or sbom fails before the build.",
-      "breaking": false,
+      "description": "build-image builds an image that expires without attestations, so dev images expire on Quay; expires-after with an explicit provenance or sbom now fails before the build: drop them or set them to false.",
+      "breaking": true,
       "links": [
         "https://github.com/wireapp/wire-rm-actions/pull/5"
       ]

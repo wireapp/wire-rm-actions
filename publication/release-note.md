@@ -1,9 +1,10 @@
 # wire-rm-actions 0.2.0
 
 The second release of the shared actions, from the first weeks of use by the
-components. Nothing changes in the existing inputs of the actions: a workflow
-pinned at 0.1.0 keeps working when it moves to 0.2.0, and gets clearer
-messages, a few fixes and a new action for extra charts.
+components. The inputs are unchanged and a workflow pinned at 0.1.0 keeps
+working when it moves to 0.2.0, with one exception in build-image (see
+Upgrade). You also get clearer messages, a few fixes and a new action for
+extra charts.
 
 ## What changes
 
