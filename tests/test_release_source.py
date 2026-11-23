@@ -8,8 +8,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
-
-from conftest import outputs
+from conftest import commit, copy_repo, git, init_repo, outputs
 
 SCRIPT = "scripts/release-source.sh"
 KEYS = (
@@ -19,31 +18,21 @@ KEYS = (
 NOTE = "Building the candidate image and packaging the chart. The draft release link appears here once created."
 
 
-def _git(repo: Path, *args: str) -> str:
-    return subprocess.run(
-        ["git", "-C", str(repo), *args], check=True, capture_output=True, text=True
-    ).stdout.strip()
-
-
-def _commit(repo: Path, subject: str) -> str:
-    _git(repo, "commit", "-q", "--allow-empty", "-m", subject)
-    return _git(repo, "rev-parse", "HEAD")
+@pytest.fixture(scope="module")
+def _repo_template(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    path = init_repo(tmp_path_factory.mktemp("release-source") / "src")
+    commit(path, "feat: before the tag")
+    git(path, "tag", "v1.0.0")
+    commit(path, "feat(api): add search")
+    commit(path, "fix: crash on empty team (#42)")
+    git(path, "update-ref", "refs/remotes/origin/dev", "HEAD")
+    return path
 
 
 @pytest.fixture
-def repo(tmp_path: Path) -> Path:
+def repo(_repo_template: Path, tmp_path: Path) -> Path:
     """dev at three commits, v1.0.0 on the first; origin/dev at the tip, as a full checkout leaves it."""
-    path = tmp_path / "src"
-    path.mkdir()
-    _git(path, "init", "-q", "-b", "dev")
-    for k, v in (("user.email", "test@example.com"), ("user.name", "Test"), ("commit.gpgsign", "false")):
-        _git(path, "config", k, v)
-    _commit(path, "feat: before the tag")
-    _git(path, "tag", "v1.0.0")
-    _commit(path, "feat(api): add search")
-    _commit(path, "fix: crash on empty team (#42)")
-    _git(path, "update-ref", "refs/remotes/origin/dev", "HEAD")
-    return path
+    return copy_repo(_repo_template, tmp_path / "src")
 
 
 def _run(gh, cwd: Path, **env: str) -> subprocess.CompletedProcess:
@@ -114,7 +103,7 @@ def test_verify_refuses_a_repository_name(gh, tmp_path, repository):
 def test_resolve_the_tip_of_the_branch(gh, repo, tmp_path):
     output = tmp_path / "output"
     result = _run(gh, repo, MODE="resolve", SOURCE_BRANCH="dev", GITHUB_OUTPUT=str(output))
-    sha = _git(repo, "rev-parse", "HEAD")
+    sha = git(repo, "rev-parse", "HEAD")
     assert result.returncode == 0, result.stderr
     assert f"Resolved source_branch 'dev' to {sha}" in result.stdout
     assert outputs(result) == {"sha": sha}
@@ -122,16 +111,16 @@ def test_resolve_the_tip_of_the_branch(gh, repo, tmp_path):
 
 
 def test_resolve_a_release_line(gh, repo):
-    _git(repo, "checkout", "-q", "-b", "release/1.41")
-    _git(repo, "update-ref", "refs/remotes/origin/release/1.41", "HEAD")
+    git(repo, "checkout", "-q", "-b", "release/1.41")
+    git(repo, "update-ref", "refs/remotes/origin/release/1.41", "HEAD")
     result = _run(gh, repo, MODE="resolve", SOURCE_BRANCH="release/1.41")
     assert result.returncode == 0, result.stderr
-    assert outputs(result)["sha"] == _git(repo, "rev-parse", "HEAD")
+    assert outputs(result)["sha"] == git(repo, "rev-parse", "HEAD")
 
 
 def test_resolve_refuses_a_checkout_behind_the_tip(gh, repo):
-    tip = _git(repo, "rev-parse", "HEAD")
-    _git(repo, "checkout", "-q", "HEAD~1")
+    tip = git(repo, "rev-parse", "HEAD")
+    git(repo, "checkout", "-q", "HEAD~1")
     result = _run(gh, repo, MODE="resolve", SOURCE_BRANCH="dev")
     assert result.returncode == 1
     assert "not at the tip of origin/dev" in result.stderr
@@ -158,7 +147,7 @@ def test_resolve_refuses_a_bad_branch_name(gh, repo):
 def summary_env(repo: Path) -> dict[str, str]:
     return {
         "MODE": "summary", "SOURCE_BRANCH": "dev", "VERSION": "1.1.0-rc.1", "RELEASE_TYPE": "rc",
-        "SOURCE_SHA": _git(repo, "rev-parse", "HEAD"), "BASE_TAG": "v1.0.0", "FROM_TAG": "v1.0.0",
+        "SOURCE_SHA": git(repo, "rev-parse", "HEAD"), "BASE_TAG": "v1.0.0", "FROM_TAG": "v1.0.0",
     }
 
 
@@ -191,7 +180,7 @@ def test_summary_of_the_candidate(gh, repo, tmp_path, summary_env):
 <summary>Commits since v1.0.0</summary>
 
 - {short} fix: crash on empty team (#42)
-- {_git(repo, "rev-parse", "--short", "HEAD~1")} feat(api): add search
+- {git(repo, "rev-parse", "--short", "HEAD~1")} feat(api): add search
 
 </details>
 
@@ -200,7 +189,7 @@ def test_summary_of_the_candidate(gh, repo, tmp_path, summary_env):
 
 
 def test_summary_without_commits_since_the_tag(gh, repo, tmp_path, summary_env):
-    _git(repo, "tag", "v1.0.1")
+    git(repo, "tag", "v1.0.1")
     result, text = _summary(gh, repo, tmp_path, summary_env, FROM_TAG="v1.0.1", BASE_TAG="v1.0.1")
     assert result.returncode == 0, result.stderr
     assert outputs(result) == {"commit-count": "0"}

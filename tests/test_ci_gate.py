@@ -158,6 +158,31 @@ def test_unreadable_run_fails(green, tmp_path):
     assert "actions: read" in result.stderr
 
 
+# A GitHub API error is not an empty answer ("no release", "no check"): the gate refuses and
+# names the permission that is missing, it never passes on what it could not read.
+@pytest.mark.parametrize(
+    ("route", "env", "message", "never_printed"),
+    [
+        (r"releases\?per_page=100", {}, f"could not list the releases of {REPO} (contents: read)", "safe to proceed"),
+        (r"git/matching-refs/tags/v1\.41\.4", {}, f"could not read the tags of {REPO} (contents: read)", "safe to proceed"),
+        (rf"commits/{SHA}/check-runs\?per_page=100", {}, f"could not list the check runs of {SHA} (checks: read)", "CI gate passed"),
+        (rf"commits/{SHA}/status\?per_page=100", {}, f"could not read the statuses of {SHA} (statuses: read)", "CI gate passed"),
+        (
+            r"rules/branches/dev\?per_page=100",
+            {"CHECKS_FROM": "branch-rules", "BRANCH": "dev"},
+            f"could not read the rules of branch dev (contents: read)",
+            "CI gate passed",
+        ),
+    ],
+)
+def test_an_api_error_never_passes_the_gate(green, tmp_path, route, env, message, never_printed):
+    green.state["fail"] = {rf"GET repos/{REPO}/{route}": "HTTP 500"}
+    result = _run(green, tmp_path, **env)
+    assert result.returncode == 1
+    assert message in result.stderr
+    assert never_printed not in result.stdout
+
+
 @pytest.mark.parametrize("state, ok", [("success", True), ("pending", False), ("error", False)])
 def test_legacy_statuses(green, tmp_path, state, ok):
     green.state["statuses"] = {SHA: [{"context": "ci/jenkins", "state": state}]}

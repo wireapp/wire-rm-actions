@@ -7,38 +7,36 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from conftest import copy_repo, git, init_repo
 
 SCRIPT = Path(__file__).resolve().parent.parent / "scripts/release-version.sh"
 
 
-def _git(repo: Path, *args: str) -> str:
-    return subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True, text=True).stdout.strip()
-
-
 def _commit(repo: Path, msg: str) -> str:
     (repo / "a").write_text(msg)
-    _git(repo, "add", "a")
-    _git(repo, "commit", "-q", "-m", msg)
-    return _git(repo, "rev-parse", "HEAD")
+    git(repo, "add", "a")
+    git(repo, "commit", "-q", "-m", msg)
+    return git(repo, "rev-parse", "HEAD")
 
 
 def _remote_branch(repo: Path, branch: str) -> None:
     """Make HEAD visible as origin/<branch>, as a fetch-depth 0 checkout would."""
-    _git(repo, "update-ref", f"refs/remotes/origin/{branch}", "HEAD")
+    git(repo, "update-ref", f"refs/remotes/origin/{branch}", "HEAD")
 
 
-@pytest.fixture
-def repo(tmp_path: Path) -> Path:
-    path = tmp_path / "repo"
-    path.mkdir()
-    subprocess.run(["git", "-C", str(path), "init", "-q", "-b", "dev"], check=True)
-    for k, v in (("user.email", "test@example.com"), ("user.name", "Test"), ("commit.gpgsign", "false")):
-        _git(path, "config", k, v)
+@pytest.fixture(scope="module")
+def _repo_template(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    path = init_repo(tmp_path_factory.mktemp("release-version") / "repo")
     _commit(path, "first")
-    _git(path, "tag", "v1.41.4")
+    git(path, "tag", "v1.41.4")
     _commit(path, "next")
     _remote_branch(path, "dev")
     return path
+
+
+@pytest.fixture
+def repo(_repo_template: Path, tmp_path: Path) -> Path:
+    return copy_repo(_repo_template, tmp_path / "repo")
 
 
 def _run(repo: Path, **env: str) -> subprocess.CompletedProcess:
@@ -68,7 +66,7 @@ def test_ga_after_ga_bumps_patch(repo):
     assert out["tag"] == "v1.41.5"
     assert out["latest-tag"] == "v1.41.4"
     assert out["from-tag"] == "v1.41.4"
-    assert out["sha"] == _git(repo, "rev-parse", "HEAD")
+    assert out["sha"] == git(repo, "rev-parse", "HEAD")
 
 
 @pytest.mark.parametrize(("bump", "version"), [("minor", "1.42.0"), ("major", "2.0.0")])
@@ -84,7 +82,7 @@ def test_first_prerelease_after_ga(repo):
 
 
 def test_same_channel_increments(repo):
-    _git(repo, "tag", "v1.42.0-rc.1")
+    git(repo, "tag", "v1.42.0-rc.1")
     _commit(repo, "fix")
     _remote_branch(repo, "dev")
     out = _ok(repo, RELEASE_TYPE="rc")
@@ -93,7 +91,7 @@ def test_same_channel_increments(repo):
 
 
 def test_higher_channel_restarts_at_one(repo):
-    _git(repo, "tag", "v1.42.0-beta.3")
+    git(repo, "tag", "v1.42.0-beta.3")
     _commit(repo, "fix")
     _remote_branch(repo, "dev")
     out = _ok(repo, RELEASE_TYPE="rc")
@@ -102,14 +100,14 @@ def test_higher_channel_restarts_at_one(repo):
 
 
 def test_lower_channel_is_refused(repo):
-    _git(repo, "tag", "v1.42.0-rc.1")
+    git(repo, "tag", "v1.42.0-rc.1")
     result = _run(repo, RELEASE_TYPE="beta")
     assert result.returncode == 1
     assert "never moves backward in channel maturity" in result.stderr
 
 
 def test_ga_promotes_a_prerelease(repo):
-    _git(repo, "tag", "v1.42.0-rc.2")
+    git(repo, "tag", "v1.42.0-rc.2")
     out = _ok(repo)
     assert out["version"] == "1.42.0"
     assert out["from-tag"] == "v1.41.4"
@@ -120,7 +118,7 @@ def test_ga_promotes_a_prerelease(repo):
     [("alpha", "minor", "1.43.0-alpha.1"), ("rc", "major", "2.0.0-rc.1"), ("ga", "minor", "1.43.0"), ("ga", "major", "2.0.0")],
 )
 def test_explicit_bump_from_a_prerelease_opens_a_new_line(repo, release_type, bump, version):
-    _git(repo, "tag", "v1.42.0-rc.2")
+    git(repo, "tag", "v1.42.0-rc.2")
     result = _run(repo, RELEASE_TYPE=release_type, VERSION_BUMP=bump)
     assert result.returncode == 0, result.stderr
     assert "opens a new line" in result.stdout
@@ -131,12 +129,12 @@ def test_explicit_bump_from_a_prerelease_opens_a_new_line(repo, release_type, bu
 
 
 def test_explicit_bump_from_a_prerelease_ignores_the_channel_order(repo):
-    _git(repo, "tag", "v1.42.0-rc.2")
+    git(repo, "tag", "v1.42.0-rc.2")
     assert _ok(repo, RELEASE_TYPE="alpha", VERSION_BUMP="minor")["version"] == "1.43.0-alpha.1"
 
 
 def test_release_line_refuses_a_new_line_from_a_prerelease(repo):
-    _git(repo, "tag", "v1.41.5-alpha.1")
+    git(repo, "tag", "v1.41.5-alpha.1")
     _remote_branch(repo, "release/1.41")
     result = _run(repo, SOURCE_BRANCH="release/1.41", RELEASE_TYPE="alpha", VERSION_BUMP="minor")
     assert result.returncode == 1
@@ -144,14 +142,14 @@ def test_release_line_refuses_a_new_line_from_a_prerelease(repo):
 
 
 def test_several_tags_on_the_anchor_commit_take_the_highest(repo):
-    _git(repo, "tag", "v1.42.0-alpha.5")
-    _git(repo, "tag", "v1.42.0-alpha.6")
+    git(repo, "tag", "v1.42.0-alpha.5")
+    git(repo, "tag", "v1.42.0-alpha.6")
     _commit(repo, "fix")
     _remote_branch(repo, "dev")
     out = _ok(repo, RELEASE_TYPE="alpha")
     assert out["version"] == "1.42.0-alpha.7"
     assert out["latest-tag"] == "v1.42.0-alpha.6"
-    _git(repo, "tag", "v1.42.0", "HEAD~1")
+    git(repo, "tag", "v1.42.0", "HEAD~1")
     assert _ok(repo)["version"] == "1.42.1"
 
 
@@ -160,7 +158,7 @@ def test_several_tags_on_the_anchor_commit_take_the_highest(repo):
     [("alpha", "1.50.0-alpha.1", "prerelease"), ("rc", "1.50.0-rc.1", "prerelease"), ("ga", "1.50.0", "ga")],
 )
 def test_anchor_names_the_next_release(repo, release_type, version, kind):
-    _git(repo, "tag", "v1.50.0-0")
+    git(repo, "tag", "v1.50.0-0")
     _commit(repo, "fix")
     _remote_branch(repo, "dev")
     out = _ok(repo, RELEASE_TYPE=release_type)
@@ -172,25 +170,25 @@ def test_anchor_names_the_next_release(repo, release_type, version, kind):
 
 @pytest.mark.parametrize("bump", ["minor", "major"])
 def test_anchor_refuses_another_bump(repo, bump):
-    _git(repo, "tag", "v1.50.0-0")
+    git(repo, "tag", "v1.50.0-0")
     result = _run(repo, VERSION_BUMP=bump)
     assert result.returncode == 1
     assert "is invalid from the anchor 'v1.50.0-0'" in result.stderr
 
 
 def test_anchor_is_left_behind_by_its_first_release(repo):
-    _git(repo, "tag", "v1.50.0-0")
-    _git(repo, "tag", "v1.50.0-alpha.1")
+    git(repo, "tag", "v1.50.0-0")
+    git(repo, "tag", "v1.50.0-alpha.1")
     assert _ok(repo, RELEASE_TYPE="alpha")["version"] == "1.50.0-alpha.2"
     _commit(repo, "fix")
-    _git(repo, "tag", "v1.50.0")
+    git(repo, "tag", "v1.50.0")
     _remote_branch(repo, "dev")
     assert _ok(repo)["version"] == "1.50.1"
 
 
 def test_anchor_on_the_commit_of_an_older_release(repo):
-    _git(repo, "tag", "v1.41.5")
-    _git(repo, "tag", "v1.42.0-0")
+    git(repo, "tag", "v1.41.5")
+    git(repo, "tag", "v1.42.0-0")
     _remote_branch(repo, "release/1.41")
     assert _ok(repo, RELEASE_TYPE="alpha")["version"] == "1.42.0-alpha.1"
     out = _ok(repo, SOURCE_BRANCH="release/1.41")
@@ -199,7 +197,7 @@ def test_anchor_on_the_commit_of_an_older_release(repo):
 
 
 def test_release_line_skips_the_anchor_of_another_line(repo):
-    _git(repo, "tag", "v1.42.0-0")
+    git(repo, "tag", "v1.42.0-0")
     _remote_branch(repo, "release/1.41")
     out = _ok(repo, SOURCE_BRANCH="release/1.41")
     assert out["version"] == "1.41.5"
@@ -207,7 +205,7 @@ def test_release_line_skips_the_anchor_of_another_line(repo):
 
 
 def test_release_line_reads_its_own_anchor(repo):
-    _git(repo, "tag", "v1.41.40-0")
+    git(repo, "tag", "v1.41.40-0")
     _remote_branch(repo, "release/1.41")
     out = _ok(repo, SOURCE_BRANCH="release/1.41")
     assert out["version"] == "1.41.40"
@@ -215,14 +213,10 @@ def test_release_line_reads_its_own_anchor(repo):
 
 
 def test_anchor_alone_opens_a_history_without_release_tags(tmp_path):
-    repo = tmp_path / "legacy"
-    repo.mkdir()
-    subprocess.run(["git", "-C", str(repo), "init", "-q", "-b", "dev"], check=True)
-    for k, v in (("user.email", "test@example.com"), ("user.name", "Test"), ("commit.gpgsign", "false")):
-        _git(repo, "config", k, v)
+    repo = init_repo(tmp_path / "legacy")
     _commit(repo, "first")
-    _git(repo, "tag", "5.0.80")
-    _git(repo, "tag", "v5.1.0-0")
+    git(repo, "tag", "5.0.80")
+    git(repo, "tag", "v5.1.0-0")
     _commit(repo, "next")
     _remote_branch(repo, "release/5.1")
     out = _ok(repo, SOURCE_BRANCH="release/5.1", RELEASE_TYPE="alpha")
@@ -231,7 +225,7 @@ def test_anchor_alone_opens_a_history_without_release_tags(tmp_path):
 
 
 def test_legacy_prerelease_form_is_not_continued(repo):
-    _git(repo, "tag", "v1.42.0-rc04")
+    git(repo, "tag", "v1.42.0-rc04")
     result = _run(repo, RELEASE_TYPE="rc")
     assert result.returncode == 1
     assert "former pre-release form" in result.stderr
@@ -239,7 +233,7 @@ def test_legacy_prerelease_form_is_not_continued(repo):
 
 
 def test_release_line_stays_in_its_line(repo):
-    _git(repo, "branch", "release/1.41")
+    git(repo, "branch", "release/1.41")
     _remote_branch(repo, "release/1.41")
     assert _ok(repo, SOURCE_BRANCH="release/1.41")["version"] == "1.41.5"
     result = _run(repo, SOURCE_BRANCH="release/1.41", VERSION_BUMP="minor")
@@ -249,29 +243,29 @@ def test_release_line_stays_in_its_line(repo):
 
 def test_release_line_ignores_newer_minors(repo):
     _remote_branch(repo, "release/1.41")
-    _git(repo, "checkout", "-q", "-b", "trunk", "HEAD~1")
+    git(repo, "checkout", "-q", "-b", "trunk", "HEAD~1")
     _commit(repo, "a newer minor elsewhere")
-    _git(repo, "tag", "v1.42.0")
+    git(repo, "tag", "v1.42.0")
     assert _ok(repo, SOURCE_BRANCH="release/1.41")["version"] == "1.41.5"
 
 
 def test_trunk_candidate_must_be_the_newest_release(repo):
-    _git(repo, "tag", "v1.42.0")
-    _git(repo, "checkout", "-q", "-b", "other", "HEAD~1")
+    git(repo, "tag", "v1.42.0")
+    git(repo, "checkout", "-q", "-b", "other", "HEAD~1")
     _commit(repo, "elsewhere")
-    _git(repo, "update-ref", "refs/remotes/origin/dev", "HEAD")
+    git(repo, "update-ref", "refs/remotes/origin/dev", "HEAD")
     result = _run(repo, VERSION_BUMP="patch")
     assert result.returncode == 1
     assert "is already ahead of the computed target" in result.stderr
 
 
 def test_existing_tag_is_refused(repo):
-    _git(repo, "tag", "v1.41.5")
+    git(repo, "tag", "v1.41.5")
     _commit(repo, "more")
     _remote_branch(repo, "dev")
-    _git(repo, "tag", "-d", "v1.41.5")
-    _git(repo, "tag", "v1.41.5", "HEAD~1")
-    _git(repo, "update-ref", "refs/remotes/origin/dev", "HEAD~2")
+    git(repo, "tag", "-d", "v1.41.5")
+    git(repo, "tag", "v1.41.5", "HEAD~1")
+    git(repo, "update-ref", "refs/remotes/origin/dev", "HEAD~2")
     result = _run(repo)
     assert result.returncode == 1
     assert "already exists" in result.stderr
@@ -285,7 +279,7 @@ def test_expected_version_must_match(repo):
 
 
 def test_tag_prefix(repo):
-    _git(repo, "tag", "2.0.0")
+    git(repo, "tag", "2.0.0")
     out = _ok(repo, TAG_PREFIX="")
     assert out["version"] == "2.0.1"
     assert out["tag"] == "2.0.1"
@@ -307,11 +301,7 @@ def test_refused_inputs(repo, env, message):
 
 
 def test_no_release_tag_fails(tmp_path):
-    repo = tmp_path / "bare"
-    repo.mkdir()
-    subprocess.run(["git", "-C", str(repo), "init", "-q", "-b", "dev"], check=True)
-    for k, v in (("user.email", "test@example.com"), ("user.name", "Test"), ("commit.gpgsign", "false")):
-        _git(repo, "config", k, v)
+    repo = init_repo(tmp_path / "bare")
     _commit(repo, "first")
     _remote_branch(repo, "dev")
     result = _run(repo)

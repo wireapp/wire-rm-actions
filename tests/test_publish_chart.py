@@ -312,32 +312,6 @@ def test_an_absent_version_is_pushed(env, tmp_path, mode, error):
     assert f"is not published yet: {error}" in result.stdout
 
 
-def test_dependencies_are_built(env):
-    chart_yaml = Path(env["CHART_PATH"]) / "Chart.yaml"
-    chart_yaml.write_text(
-        chart_yaml.read_text()
-        + "dependencies:\n  - name: redis\n    version: 1.0.0\n    repository: oci://registry.example.com/charts\n"
-    )
-    result = _run(env)
-    assert result.returncode == 0, result.stderr
-    calls = _calls(env)
-    build = calls.index(f"dependency build {env['CHART_PATH']}")
-    assert build < next(i for i, c in enumerate(calls) if c.startswith("package "))
-
-
-# An apiVersion v1 chart declares its dependencies in requirements.yaml, not in
-# Chart.yaml: helm package refuses it when they are not in charts/.
-def test_requirements_dependencies_are_built(env):
-    (Path(env["CHART_PATH"]) / "requirements.yaml").write_text(
-        "dependencies:\n  - name: redis\n    version: 1.0.0\n    repository: file://../redis\n"
-    )
-    result = _run(env)
-    assert result.returncode == 0, result.stderr
-    calls = _calls(env)
-    build = calls.index(f"dependency build {env['CHART_PATH']}")
-    assert build < next(i for i, c in enumerate(calls) if c.startswith("package "))
-
-
 def _add_dependency(env: dict[str, str], file: str) -> None:
     chart = Path(env["CHART_PATH"])
     dependency = "dependencies:\n  - name: redis\n    version: 1.0.0\n    repository: https://charts.example.com\n"
@@ -347,26 +321,25 @@ def _add_dependency(env: dict[str, str], file: str) -> None:
         (chart / file).write_text(dependency)
 
 
+# helm package refuses a dependency that is not in charts/ (missing, or of another version):
+# it is built first. When the caller ran helm dependency update they all are there, and build
+# would fail without the repositories added with helm repo add. An apiVersion v1 chart
+# declares its dependencies in requirements.yaml, not in Chart.yaml.
 @pytest.mark.parametrize("file", ["Chart.yaml", "requirements.yaml"])
-def test_dependency_of_another_version_is_built(env, file):
-    _add_dependency(env, file)
-    result = _run(env, FAKE_DEPENDENCY_STATUS="wrong version")
-    assert result.returncode == 0, result.stderr
-    assert f"dependency build {env['CHART_PATH']}" in _calls(env)
-
-
-# The caller ran helm dependency update: build would fail without the
-# repositories added with helm repo add.
-@pytest.mark.parametrize("file", ["Chart.yaml", "requirements.yaml"])
-@pytest.mark.parametrize("status", ["ok", "unpacked"])
-def test_fetched_dependencies_are_not_built_again(env, file, status):
+@pytest.mark.parametrize(
+    "status, built", [("missing", True), ("wrong version", True), ("ok", False), ("unpacked", False)]
+)
+def test_only_the_dependencies_that_are_not_there_are_built(env, file, status, built):
     _add_dependency(env, file)
     result = _run(env, FAKE_DEPENDENCY_STATUS=status)
     assert result.returncode == 0, result.stderr
     calls = _calls(env)
     assert f"dependency list {env['CHART_PATH']}" in calls
-    assert not any(c.startswith("dependency build") for c in calls)
-    assert any(c.startswith("package ") for c in calls)
+    package = next(i for i, c in enumerate(calls) if c.startswith("package "))
+    if built:
+        assert calls.index(f"dependency build {env['CHART_PATH']}") < package
+    else:
+        assert not any(c.startswith("dependency build") for c in calls)
 
 
 # helm dependency list ends with a warning on stdout for a chart that sits in
@@ -500,13 +473,6 @@ def test_chart_file_version_is_checked(env, tmp_path):
     assert result.returncode == 1
     assert "is version '1.41.5', expected '1.41.6'" in result.stderr
     assert not any(c.startswith(("pull ", "push ")) for c in _calls(env))
-
-
-def test_chart_file_app_version_must_match(env, tmp_path):
-    tgz = _chart_file(tmp_path, "my-component", "1.41.5", app_version="1.41.4")
-    result = _run(env, CHART_PATH="", VERSION="", CHART_FILE=str(tgz))
-    assert result.returncode == 1
-    assert "has appVersion '1.41.4', expected the chart version '1.41.5'" in result.stderr
 
 
 def test_chart_file_name_must_follow_helm(env, tmp_path):

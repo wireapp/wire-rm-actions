@@ -4,6 +4,7 @@ and download it, publish it (replaced assets, make_latest, the tag born last).""
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -233,6 +234,64 @@ def test_tag_state(draft, tmp_path):
     result = _run(draft, tmp_path, MODE="publish", RELEASE_ID="101", MAKE_LATEST="false")
     assert result.returncode == 1
     assert draft.load()["releases"][0]["draft"] is True
+
+
+# A GitHub API error is not an empty answer ("no draft", "no tag", "no asset"): nothing is
+# resolved from what could not be read.
+@pytest.mark.parametrize(
+    ("route", "message"),
+    [
+        (r"releases\?per_page=100", f"could not list the releases of {REPO}"),
+        (r"releases/101", f"could not read release 101 of {REPO}"),
+        (r"releases/101/assets\?per_page=100", "could not list the assets of release 101"),
+        (r"releases/assets/\d+", "could not download asset 'release-manifest.json'"),
+        (r"git/matching-refs/tags/v1\.41\.4", f"could not read the tag v1.41.4 of {REPO}"),
+    ],
+)
+def test_an_api_error_stops_the_resolution(draft, tmp_path, route, message):
+    draft.state["fail"] = {rf"GET repos/{REPO}/{route}": "HTTP 500"}
+    result = _run(draft, tmp_path, MODE="resolve")
+    assert result.returncode == 1
+    assert message in result.stderr
+    assert "tag-exists" not in outputs(result)
+
+
+# The tag of the release, annotated: the commit it points to is one more API call.
+def test_an_api_error_on_an_annotated_tag_stops_the_resolution(draft, tmp_path):
+    draft.state["refs"] = [{"ref": "refs/tags/v1.41.4", "object": {"type": "tag", "sha": "f" * 40}}]
+    draft.state["tags"] = {"f" * 40: {"object": {"type": "commit", "sha": SHA}}}
+    draft.state["fail"] = {rf"GET repos/{REPO}/git/tags/{'f' * 40}": "HTTP 500"}
+    result = _run(draft, tmp_path, MODE="resolve")
+    assert result.returncode == 1
+    assert f"could not read the tag v1.41.4 of {REPO}" in result.stderr
+    assert "tag-exists" not in outputs(result)
+
+
+# The draft stays a draft whatever fails on the way: the tag is born with the PATCH, last.
+@pytest.mark.parametrize(
+    ("method", "route", "env", "message"),
+    [
+        ("GET", r"git/matching-refs/tags/v1\.41\.4", {"MAKE_LATEST": "false"}, f"could not read the tag v1.41.4 of {REPO}"),
+        ("GET", r"git/matching-refs/tags/v", {"SOURCE_REF": "dev"}, f"could not list the tags of {REPO}"),
+        ("GET", r"releases/101/assets\?per_page=100", {"MAKE_LATEST": "false"}, "could not list the assets of release 101"),
+        ("DELETE", r"releases/assets/\d+", {"MAKE_LATEST": "false"}, "could not delete asset 'release-manifest.json'"),
+        ("POST", r"releases/101/assets\?name=release-manifest\.json", {"MAKE_LATEST": "false"}, "could not upload asset 'release-manifest.json'"),
+        ("PATCH", r"releases/101", {"MAKE_LATEST": "false"}, "could not publish release 101"),
+    ],
+)
+def test_an_api_error_leaves_the_draft_a_draft(draft, tmp_path, method, route, env, message):
+    completed = tmp_path / "release-manifest.completed.json"
+    completed.write_text('{"publication": {}}\n')
+    host = "https://uploads.github.com/" if method == "POST" else ""
+    draft.state["fail"] = {rf"{method} {re.escape(host)}repos/{REPO}/{route}": "HTTP 500"}
+    result = _run(
+        draft, tmp_path, MODE="publish", RELEASE_ID="101", REPLACE_ASSETS=f"release-manifest.json={completed}\n", **env
+    )
+    assert result.returncode == 1
+    assert message in result.stderr
+    state = draft.load()
+    assert state["releases"][0]["draft"] is True
+    assert not any(r["ref"] == "refs/tags/v1.41.4" for r in state.get("refs", []))
 
 
 def test_publish(draft, tmp_path):
