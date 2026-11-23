@@ -171,7 +171,7 @@ def test_a_robot_that_is_not_org_plus_name_is_refused(idp, quay, fake_docker, ro
     assert idp.calls == []
 
 
-@pytest.mark.parametrize("robot", ["wire+gha_my-component", "wire+gha_wire-server", "my-org+ci.robot", "wire+gha_my-component"])
+@pytest.mark.parametrize("robot", ["wire+gha_my-component", "wire+gha_wire-server", "my-org+ci.robot"])
 def test_quay_names_with_hyphens_and_dots_are_accepted(idp, quay, fake_docker, robot: str):
     result = _run(idp, quay, fake_docker, ROBOT=robot)
     assert result.returncode == 0, result.stderr

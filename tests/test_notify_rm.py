@@ -146,22 +146,6 @@ def test_unset_url_skips_with_explicit_warning(rms):
     assert "::warning title=rm-prod skipped::RM_PROD_URL is not set or empty; my-component" in result.stdout
 
 
-def test_failure_only_warns(rms):
-    staging, prod = rms
-    staging.status = 500
-    result = _run(
-        RM_STAGING_URL=staging.url,
-        RM_STAGING_TOKEN="t",
-        RM_PROD_URL=prod.url,
-        RM_PROD_TOKEN="t",
-    )
-    assert result.returncode == 0, result.stderr
-    assert _annotations(result) == [
-        "::warning title=rm-staging answered HTTP 500::my-component 4.24.3-20261005135125.gabcdef0 not declared there"
-    ]
-    assert len(prod.calls) == 1
-
-
 def test_response_body_shown_on_failure_only_without_workflow_commands(rms):
     staging, prod = rms
     staging.status = 500
@@ -919,11 +903,12 @@ def test_component_and_version_cannot_hold_control_characters(rms, env):
     assert "::error::x" not in result.stdout
 
 
-def test_every_annotation_has_a_title(rms):
+def test_a_failure_only_warns_and_every_annotation_has_a_title(rms):
     staging, prod = rms
     staging.status = 500
     result = _run(RM_STAGING_URL=staging.url, RM_STAGING_TOKEN="t", RM_PROD_URL=prod.url, RM_PROD_TOKEN="t")
     assert result.returncode == 0, result.stderr
+    assert len(prod.calls) == 1
     untitled = [
         line
         for line in result.stdout.splitlines()
