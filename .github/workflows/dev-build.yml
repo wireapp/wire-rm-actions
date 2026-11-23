@@ -83,17 +83,17 @@ jobs:
       # Called from another repo, a local ./ path would resolve there: pin these
       # to the same ref as this workflow when it is released.
       - id: version
-        uses: wireapp/wire-rm-actions/version@v0.1.0
+        uses: wireapp/wire-rm-actions/version@v0.2.0-alpha.1
         with:
           release-branches: ${{ inputs.release-branches }}
       - id: quay
-        uses: wireapp/wire-rm-actions/quay-login@v0.1.0
+        uses: wireapp/wire-rm-actions/quay-login@v0.2.0-alpha.1
         with:
           robot: ${{ inputs.quay-robot }}
           registry: ${{ inputs.registry }}
           docker-login: "false"
       - id: chart
-        uses: wireapp/wire-rm-actions/publish-chart@v0.1.0
+        uses: wireapp/wire-rm-actions/publish-chart@v0.2.0-alpha.1
         with:
           chart-path: ${{ inputs.chart-path }}
           chart-name: ${{ inputs.chart-name }}
@@ -102,7 +102,7 @@ jobs:
           channel: ${{ steps.version.outputs.kind == 'dev' && 'dev' || 'stable' }}
           username: ${{ steps.quay.outputs.username }}
           password: ${{ steps.quay.outputs.token }}
-      - uses: wireapp/wire-rm-actions/notify-rm@v0.1.0
+      - uses: wireapp/wire-rm-actions/notify-rm@v0.2.0-alpha.1
         with:
           rm-staging-url: ${{ inputs.rm-staging-url || vars.RM_STAGING_URL }}
           rm-staging-audience: ${{ inputs.rm-staging-audience }}
