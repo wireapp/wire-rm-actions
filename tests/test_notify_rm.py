@@ -6,27 +6,27 @@ import json
 import os
 import shutil
 import subprocess
-import threading
-from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 import pytest
+from conftest import LocalServer, QuietHandler
 
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "scripts/notify-rm.sh"
 
 
 class FakeRM:
-    """Answers POST /api/v1/versions with ``status`` and records each call."""
+    """Answers POST /api/v1/versions with ``status`` (the statuses of ``script`` first) and records each call."""
 
     def __init__(self, status: int = 200):
         self.status = status
+        self.script: list[int] = []
         self.body = b"{}"
         self.calls: list[dict] = []
         fake = self
 
-        class Handler(BaseHTTPRequestHandler):
+        class Handler(QuietHandler):
             def do_POST(self):  # noqa: N802
                 body = self.rfile.read(int(self.headers["Content-Length"]))
                 fake.calls.append(
@@ -36,19 +36,15 @@ class FakeRM:
                         "body": json.loads(body),
                     }
                 )
-                self.send_response(fake.status)
+                self.send_response(fake.script.pop(0) if fake.script else fake.status)
                 self.end_headers()
                 self.wfile.write(fake.body)
 
-            def log_message(self, *args):
-                pass
-
-        self.server = HTTPServer(("127.0.0.1", 0), Handler)
-        self.url = f"http://127.0.0.1:{self.server.server_port}"
-        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.server = LocalServer(Handler)
+        self.url = self.server.url
 
     def close(self):
-        self.server.shutdown()
+        self.server.close()
 
 
 @pytest.fixture
@@ -57,6 +53,21 @@ def rms():
     yield staging, prod
     staging.close()
     prod.close()
+
+
+ORIGINAL_PATH = os.environ["PATH"]
+
+
+@pytest.fixture(autouse=True)
+def _no_curl_retries(curl_without_retries: Path, monkeypatch: pytest.MonkeyPatch):
+    # The 5xx, refused connections and unresolved hosts provoked here would each cost curl's backoff (7 s).
+    monkeypatch.setenv("PATH", f"{curl_without_retries}{os.pathsep}{ORIGINAL_PATH}")
+
+
+@pytest.fixture
+def curl_retries(monkeypatch: pytest.MonkeyPatch):
+    """For the tests about the retries themselves: the real curl, and its 1 s of backoff."""
+    monkeypatch.setenv("PATH", ORIGINAL_PATH)
 
 
 def _run(**env: str) -> subprocess.CompletedProcess:
@@ -243,6 +254,18 @@ def test_unreachable_only_warns():
     result = _run(RM_STAGING_URL="http://127.0.0.1:9", RM_STAGING_TOKEN="t")
     assert result.returncode == 0
     assert "(unreachable)" in result.stdout
+
+
+def test_a_transient_failure_is_tried_again(rms, curl_retries):
+    staging, _ = rms
+    staging.script = [503]
+    result = _run(RM_STAGING_URL=staging.url, RM_STAGING_TOKEN="t", REQUIRED="true")
+    assert result.returncode == 0, result.stderr
+    assert len(staging.calls) == 2
+    assert _annotations(result) == []
+    assert _annotations(result, "notice") == [
+        "::notice title=rm-staging declared::my-component 4.24.3-20261005135125.gabcdef0 declared to the staging release manager"
+    ]
 
 
 @pytest.mark.parametrize(
@@ -517,11 +540,12 @@ class FakeIdp:
 
     def __init__(self, status: int = 200, body: bytes | None = None):
         self.status = status
+        self.script: list[int] = []
         self.body = body
         self.calls: list[dict] = []
         fake = self
 
-        class Handler(BaseHTTPRequestHandler):
+        class Handler(QuietHandler):
             def do_GET(self):  # noqa: N802
                 query = parse_qs(urlparse(self.path).query)
                 fake.calls.append(
@@ -530,19 +554,15 @@ class FakeIdp:
                 body = fake.body
                 if body is None:
                     body = json.dumps({"value": JWT}).encode()
-                self.send_response(fake.status)
+                self.send_response(fake.script.pop(0) if fake.script else fake.status)
                 self.end_headers()
                 self.wfile.write(body)
 
-            def log_message(self, *args):
-                pass
-
-        self.server = HTTPServer(("127.0.0.1", 0), Handler)
-        self.url = f"http://127.0.0.1:{self.server.server_port}/token?api-version=2.0"
-        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.server = LocalServer(Handler)
+        self.url = f"{self.server.url}/token?api-version=2.0"
 
     def close(self):
-        self.server.shutdown()
+        self.server.close()
 
 
 @pytest.fixture
@@ -589,6 +609,15 @@ def test_oidc_token_is_masked_first_and_never_printed(rms, idp):
     assert out.count(JWT) == 1
     assert f"::add-mask::{JWT}" in out
     assert REQUEST_TOKEN not in out
+
+
+def test_a_transient_failure_of_the_token_endpoint_is_tried_again(rms, idp, curl_retries):
+    staging, _ = rms
+    idp.script = [503]
+    result = _run(RM_STAGING_URL=staging.url, RM_STAGING_AUDIENCE="aud", REQUIRED="true", **_oidc_env(idp))
+    assert result.returncode == 0, result.stderr
+    assert len(idp.calls) == 2
+    assert staging.calls[0]["auth"] == f"Bearer {JWT}"
 
 
 def test_audience_is_url_encoded(rms, idp):

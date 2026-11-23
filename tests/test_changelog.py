@@ -10,6 +10,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from conftest import commit, copy_repo, git, init_repo
 
 SCRIPT = Path(__file__).resolve().parent.parent / "scripts/changelog.sh"
 URL = "https://github.com/wireapp/example"
@@ -32,29 +33,33 @@ SUBJECTS = [
 ]
 
 
-def _git(repo: Path, *args: str) -> str:
-    return subprocess.run(
-        ["git", "-C", str(repo), *args], check=True, capture_output=True, text=True
-    ).stdout.strip()
+@pytest.fixture(scope="module")
+def _repo_template(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    path = init_repo(tmp_path_factory.mktemp("changelog") / "src")
+    commit(path, "feat: before the tag")
+    git(path, "tag", "v1.0.0")
+    for i, subject in enumerate(SUBJECTS):
+        commit(path, subject, when=f"2026-10-01T10:00:{i:02d}+00:00")
+    return path
 
 
 @pytest.fixture
-def repo(tmp_path: Path) -> Path:
-    path = tmp_path / "src"
-    path.mkdir()
-    _git(path, "init", "-q", "-b", "dev")
-    for k, v in (("user.email", "test@example.com"), ("user.name", "Test"), ("commit.gpgsign", "false")):
-        _git(path, "config", k, v)
-    _git(path, "commit", "-q", "--allow-empty", "-m", "feat: before the tag")
-    _git(path, "tag", "v1.0.0")
-    for i, subject in enumerate(SUBJECTS):
-        date = f"2026-10-01T10:00:{i:02d}+00:00"
-        env = {**os.environ, "GIT_AUTHOR_DATE": date, "GIT_COMMITTER_DATE": date}
-        subprocess.run(
-            ["git", "-C", str(path), "commit", "-q", "--allow-empty", "-m", subject],
-            check=True, env=env,
-        )
+def repo(_repo_template: Path, tmp_path: Path) -> Path:
+    return copy_repo(_repo_template, tmp_path / "src")
+
+
+@pytest.fixture(scope="module")
+def _tagged_template(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    path = init_repo(tmp_path_factory.mktemp("changelog") / "tagged")
+    commit(path, "chore: start")
+    git(path, "tag", "v1.0.0")
     return path
+
+
+@pytest.fixture
+def tagged(_tagged_template: Path, tmp_path: Path) -> Path:
+    """One commit tagged v1.0.0: the test adds the commits it is about."""
+    return copy_repo(_tagged_template, tmp_path / "tagged")
 
 
 def _run(repo: Path, **env: str) -> subprocess.CompletedProcess:
@@ -73,7 +78,7 @@ def _changelog(repo: Path, **env: str) -> tuple[str, dict[str, str]]:
 
 
 def _link(repo: Path, subject: str) -> str:
-    sha = _git(repo, "log", "--format=%H", "--fixed-strings", f"--grep={subject}", "-1")
+    sha = git(repo, "log", "--format=%H", "--fixed-strings", f"--grep={subject}", "-1")
     assert sha, subject
     return f"([{sha[:8]}]({URL}/commit/{sha}))"
 
@@ -109,7 +114,7 @@ def test_release_format(repo: Path) -> None:
 
 def test_without_heading_nor_links(repo: Path) -> None:
     text, _ = _changelog(repo, HEADING="false", EXCLUDE="feat fix chore docs runfix")
-    sha = lambda s: _git(repo, "log", "--format=%H", "--fixed-strings", f"--grep={s}", "-1")[:8]  # noqa: E731
+    sha = lambda s: git(repo, "log", "--format=%H", "--fixed-strings", f"--grep={s}", "-1")[:8]  # noqa: E731
     assert text == "\n".join([
         "##### Breaking Changes",
         "",
@@ -130,32 +135,17 @@ def test_without_heading_nor_links(repo: Path) -> None:
         ("refactor!: tidy [breaking]", "*  tidy [breaking]"),
     ],
 )
-def test_a_bang_type_is_a_breaking_change(tmp_path: Path, subject: str, entry: str) -> None:
-    path = tmp_path / "bang"
-    path.mkdir()
-    _git(path, "init", "-q", "-b", "dev")
-    for k, v in (("user.email", "test@example.com"), ("user.name", "Test"), ("commit.gpgsign", "false")):
-        _git(path, "config", k, v)
-    _git(path, "commit", "-q", "--allow-empty", "-m", "chore: start")
-    _git(path, "tag", "v1.0.0")
-    _git(path, "commit", "-q", "--allow-empty", "-m", subject)
-    text, outputs = _changelog(path, HEADING="false", EXCLUDE="refactor")
-    sha = _git(path, "log", "--format=%H", "-1")
+def test_a_bang_type_is_a_breaking_change(tagged: Path, subject: str, entry: str) -> None:
+    sha = commit(tagged, subject)
+    text, outputs = _changelog(tagged, HEADING="false", EXCLUDE="refactor")
     assert outputs["count"] == "1"
     assert text == f"##### Breaking Changes\n\n{entry} ({sha[:8]})\n\n"
 
 
 @pytest.mark.parametrize("subject", ["feat !: space", "feat(api) !: space", "!: no type", "feat: a! b", "feat(x!): bang in scope"])
-def test_a_bang_elsewhere_is_not_a_breaking_change(tmp_path: Path, subject: str) -> None:
-    path = tmp_path / "nobang"
-    path.mkdir()
-    _git(path, "init", "-q", "-b", "dev")
-    for k, v in (("user.email", "test@example.com"), ("user.name", "Test"), ("commit.gpgsign", "false")):
-        _git(path, "config", k, v)
-    _git(path, "commit", "-q", "--allow-empty", "-m", "chore: start")
-    _git(path, "tag", "v1.0.0")
-    _git(path, "commit", "-q", "--allow-empty", "-m", subject)
-    text, _ = _changelog(path, HEADING="false", EXCLUDE="")
+def test_a_bang_elsewhere_is_not_a_breaking_change(tagged: Path, subject: str) -> None:
+    commit(tagged, subject)
+    text, _ = _changelog(tagged, HEADING="false", EXCLUDE="")
     assert "Breaking Changes" not in text
 
 
@@ -169,7 +159,7 @@ def test_no_exclusion_and_version_less_heading(repo: Path) -> None:
 
 
 def test_empty_range(repo: Path) -> None:
-    _git(repo, "tag", "v1.1.0")
+    git(repo, "tag", "v1.1.0")
     text, outputs = _changelog(repo, FROM_REF="v1.1.0", VERSION="1.1.1")
     assert text == f"#### 1.1.1 ({DATE})\n\n"
     assert outputs["count"] == "0"
@@ -220,9 +210,8 @@ def test_shallow_clone(repo: Path, tmp_path: Path) -> None:
 
 def test_subject_links_and_html_are_neutralized(repo: Path) -> None:
     subject = "fix(<b>): see [here](https://evil) ![x](https://e/i.png) <img src=x> #12"
-    _git(repo, "commit", "-q", "--allow-empty", "-m", subject)
+    sha = commit(repo, subject)
     text, _ = _changelog(repo, REPO_URL=URL)
-    sha = _git(repo, "rev-parse", "HEAD")
     assert (
         "* **&lt;b&gt;:**  see [here]&#x28;https://evil) ![x]&#x28;https://e/i.png) "
         f"&lt;img src=x&gt; [#12]({URL}/pull/12) ([{sha[:8]}]({URL}/commit/{sha}))"
@@ -239,35 +228,35 @@ PULL_REQUESTS = [
 ]
 
 
-@pytest.fixture
-def merged(tmp_path: Path) -> Path:
-    path = tmp_path / "merged"
-    path.mkdir()
-    _git(path, "init", "-q", "-b", "dev")
-    for k, v in (("user.email", "test@example.com"), ("user.name", "Test"), ("commit.gpgsign", "false")):
-        _git(path, "config", k, v)
+@pytest.fixture(scope="module")
+def _merged_template(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    path = init_repo(tmp_path_factory.mktemp("changelog") / "merged")
     tick = iter(range(60))
 
-    def commit(*args: str) -> None:
-        date = f"2026-10-01T10:00:{next(tick):02d}+00:00"
-        env = {**os.environ, "GIT_AUTHOR_DATE": date, "GIT_COMMITTER_DATE": date}
-        subprocess.run(["git", "-C", str(path), *args], check=True, capture_output=True, env=env)
+    def dated(*args: str) -> None:
+        when = f"2026-10-01T10:00:{next(tick):02d}+00:00"
+        git(path, *args, GIT_AUTHOR_DATE=when, GIT_COMMITTER_DATE=when)
 
-    commit("commit", "-q", "--allow-empty", "-m", "feat: before the tag")
-    _git(path, "tag", "v1.0.0")
+    dated("commit", "-q", "--allow-empty", "-m", "feat: before the tag")
+    git(path, "tag", "v1.0.0")
     for number, subjects in PULL_REQUESTS:
-        _git(path, "checkout", "-q", "-b", f"pr{number}", "dev")
+        git(path, "checkout", "-q", "-b", f"pr{number}", "dev")
         for subject in subjects:
-            commit("commit", "-q", "--allow-empty", "-m", subject)
-        _git(path, "checkout", "-q", "dev")
-        commit("merge", "-q", "--no-ff", f"pr{number}", "-m", f"Merge pull request #{number} from wireapp/pr{number}")
-    commit("commit", "-q", "--allow-empty", "-m", "fix: squashed (#9)")
-    commit("commit", "-q", "--allow-empty", "-m", "fix: straight on dev")
-    _git(path, "checkout", "-q", "-b", "side", "dev")
-    commit("commit", "-q", "--allow-empty", "-m", "fix: side work")
-    _git(path, "checkout", "-q", "dev")
-    commit("merge", "-q", "--no-ff", "side", "-m", "Merge branch 'side' into dev")
+            dated("commit", "-q", "--allow-empty", "-m", subject)
+        git(path, "checkout", "-q", "dev")
+        dated("merge", "-q", "--no-ff", f"pr{number}", "-m", f"Merge pull request #{number} from wireapp/pr{number}")
+    dated("commit", "-q", "--allow-empty", "-m", "fix: squashed (#9)")
+    dated("commit", "-q", "--allow-empty", "-m", "fix: straight on dev")
+    git(path, "checkout", "-q", "-b", "side", "dev")
+    dated("commit", "-q", "--allow-empty", "-m", "fix: side work")
+    git(path, "checkout", "-q", "dev")
+    dated("merge", "-q", "--no-ff", "side", "-m", "Merge branch 'side' into dev")
     return path
+
+
+@pytest.fixture
+def merged(_merged_template: Path, tmp_path: Path) -> Path:
+    return copy_repo(_merged_template, tmp_path / "merged")
 
 
 def _pr(number: int) -> str:
@@ -311,11 +300,11 @@ def test_pull_request_without_repo_url(merged: Path) -> None:
 
 def test_commit_keeps_the_first_pull_request_that_carried_it(merged: Path) -> None:
     # dev is merged into a second branch that merges back: the commits are in two merges
-    _git(merged, "checkout", "-q", "-b", "again", "dev")
-    _git(merged, "commit", "-q", "--allow-empty", "-m", "fix: again")
-    _git(merged, "checkout", "-q", "dev")
-    _git(merged, "merge", "-q", "--no-ff", "again", "-m", "Merge pull request #20 from wireapp/again")
-    _git(merged, "merge", "-q", "--no-ff", "--allow-unrelated-histories", "again", "-m", "Merge pull request #21 from wireapp/again")
+    git(merged, "checkout", "-q", "-b", "again", "dev")
+    git(merged, "commit", "-q", "--allow-empty", "-m", "fix: again")
+    git(merged, "checkout", "-q", "dev")
+    git(merged, "merge", "-q", "--no-ff", "again", "-m", "Merge pull request #20 from wireapp/again")
+    git(merged, "merge", "-q", "--no-ff", "--allow-unrelated-histories", "again", "-m", "Merge pull request #21 from wireapp/again")
     text, _ = _changelog(merged, REPO_URL=URL, HEADING="false", MERGE_COMMITS="pull-request")
     assert f"*  again {_pr(20)} " in text
 

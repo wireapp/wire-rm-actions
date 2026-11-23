@@ -6,12 +6,11 @@ from __future__ import annotations
 import base64
 import os
 import subprocess
-import threading
-from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 import pytest
+from conftest import LocalServer, QuietHandler
 
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "scripts/quay-login.sh"
@@ -33,7 +32,7 @@ class FakeEndpoint:
         self.calls: list[dict] = []
         fake = self
 
-        class Handler(BaseHTTPRequestHandler):
+        class Handler(QuietHandler):
             def _answer(self):
                 fake.calls.append(
                     {
@@ -51,15 +50,11 @@ class FakeEndpoint:
             do_GET = _answer  # noqa: N815
             do_POST = _answer  # noqa: N815
 
-            def log_message(self, *args):
-                pass
-
-        self.server = HTTPServer(("127.0.0.1", 0), Handler)
-        self.url = f"http://127.0.0.1:{self.server.server_port}"
-        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.server = LocalServer(Handler)
+        self.url = self.server.url
 
     def close(self):
-        self.server.shutdown()
+        self.server.close()
 
 
 @pytest.fixture
