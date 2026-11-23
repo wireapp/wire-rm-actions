@@ -96,18 +96,94 @@ def test_dev_build_after_prerelease_appends(repo: Path):
     assert _version(repo, BRANCH="dev")["version"] == f"5.3.0-rc.2.{TS}.g{_sha7(repo)}"
 
 
-def test_ga_wins_over_prerelease_on_same_commit(repo: Path):
-    _git(repo, "tag", "v5.3.0-rc.2")
-    _git(repo, "tag", "v5.3.0")
+@pytest.mark.parametrize(
+    "branch, identifier",
+    [("dev", ""), ("release/5.1", ""), ("feat/Login_Fix", ".login-fix")],
+)
+def test_dev_build_after_anchor_is_the_anchored_version(repo: Path, branch: str, identifier: str):
+    _git(repo, "tag", "v5.1.0-0")
     commit_file(repo, "a", "2", DATE, "next")
-    assert _version(repo, BRANCH="dev")["version"].startswith("5.3.1-")
+    out = _version(repo, BRANCH=branch)
+    assert out["version"] == f"5.1.0-{TS}{identifier}.g{_sha7(repo)}"
+    assert out["kind"] == "dev"
+    assert out["base_tag"] == "v5.1.0-0"
 
 
-def test_other_tags_are_skipped(repo: Path):
+def test_dev_build_on_the_anchor_commit(repo: Path):
+    _git(repo, "tag", "v5.32.40-0")
+    out = _version(repo, BRANCH="release/5.32")
+    assert out["version"].startswith("5.32.40-")
+    assert out["base_tag"] == "v5.32.40-0"
+
+
+@pytest.mark.parametrize(
+    "tags, branch, base_tag, start",
+    [
+        (["v5.3.0-rc.2", "v5.3.0"], "dev", "v5.3.0", "5.3.1-"),
+        (["v5.2.9", "v5.2.10"], "dev", "v5.2.10", "5.2.11-"),
+        (["v5.3.0", "v5.3.1-rc.1"], "dev", "v5.3.1-rc.1", "5.3.1-rc.1."),
+        (["v5.1.0-0", "v5.1.0-alpha.1"], "dev", "v5.1.0-alpha.1", "5.1.0-alpha.1."),
+        (["v5.1.0-0", "v5.1.0"], "dev", "v5.1.0", "5.1.1-"),
+        (["v5.0.80", "v5.0.50-0"], "dev", "v5.0.80", "5.0.81-"),
+        (["v5.0.80", "v5.1.0-0"], "dev", "v5.1.0-0", "5.1.0-"),
+        (["v5.0.80", "v5.1.0-0"], "fix/login", "v5.1.0-0", "5.1.0-"),
+        (["v5.0.80", "v5.1.0-0"], "release/5.1", "v5.1.0-0", "5.1.0-"),
+        (["v5.0.80", "v5.1.0-0"], "release/5.0", "v5.0.80", "5.0.81-"),
+        (["v5.0.80", "v5.0.90-0", "v5.1.0-0"], "release/5.0", "v5.0.90-0", "5.0.90-"),
+    ],
+)
+def test_several_tags_on_the_same_commit(repo: Path, tags: list[str], branch: str, base_tag: str, start: str):
+    for tag in tags:
+        _git(repo, "tag", tag)
+    commit_file(repo, "a", "2", DATE, "next")
+    out = _version(repo, BRANCH=branch)
+    assert out["base_tag"] == base_tag
+    assert out["version"].startswith(start)
+
+
+def test_release_line_skips_the_anchor_of_another_line(repo: Path):
+    _git(repo, "tag", "v5.0.80")
+    commit_file(repo, "a", "2", DATE, "next")
+    _git(repo, "tag", "v5.1.0-0")
+    assert _version(repo, BRANCH="release/5.0")["version"].startswith("5.0.81-")
+    assert _version(repo, BRANCH="dev")["version"].startswith("5.1.0-")
+
+
+# A pull request is built under the name of its own branch: the branch it
+# targets says which line it belongs to.
+@pytest.mark.parametrize(
+    "branch, base, start",
+    [
+        ("fix-x", "release/5.0", "5.0.81-"),
+        ("fix-x", "dev", "5.1.0-"),
+        ("fix-x", "", "5.1.0-"),
+        ("release/5.0", "dev", "5.0.81-"),
+    ],
+)
+def test_pull_request_reads_the_anchors_of_its_line(repo: Path, branch: str, base: str, start: str):
+    _git(repo, "tag", "v5.0.80")
+    _git(repo, "tag", "v5.1.0-0")
+    commit_file(repo, "a", "2", DATE, "next")
+    assert _version(repo, BRANCH=branch, BASE_BRANCH=base)["version"].startswith(start)
+
+
+def test_anchor_with_a_tag_prefix(repo: Path):
+    _git(repo, "tag", "v9.0.0")
+    _git(repo, "tag", "chart/v5.1.0-0")
+    commit_file(repo, "a", "2", DATE, "next")
+    out = _version(repo, BRANCH="dev", TAG_PREFIX="chart/v")
+    assert out["version"] == f"5.1.0-{TS}.g{_sha7(repo)}"
+    assert out["base_tag"] == "chart/v5.1.0-0"
+
+
+@pytest.mark.parametrize(
+    "other",
+    ["v4.1.0-pre.3", "v4.1.0-alpha.0", "v4.1.0-rc.0", "v4.1.0-00", "v4.1.0-1", "v4.1.0-0.1", "chart-1.2.3"],
+)
+def test_other_tags_are_skipped(repo: Path, other: str):
     _git(repo, "tag", "v4.0.0")
     commit_file(repo, "a", "2", DATE, "next")
-    _git(repo, "tag", "v4.1.0-pre.3")
-    _git(repo, "tag", "chart-1.2.3")
+    _git(repo, "tag", other)
     assert _version(repo, BRANCH="dev")["version"].startswith("4.0.1-")
 
 
@@ -118,16 +194,25 @@ def test_tag_build_is_the_tag(repo: Path):
     assert out["kind"] == "prerelease"
 
 
-@pytest.mark.parametrize("tag", ["v5.3.0-pre.1", "v5.3", "v5.3.0-rc.0", "5.3.0"])
+@pytest.mark.parametrize("tag", ["v5.3.0-pre.1", "v5.3", "v5.3.0-rc.0", "v5.3.0-alpha.0", "5.3.0"])
 def test_tag_build_refuses_other_forms(repo: Path, tag: str):
     _git(repo, "tag", tag)
-    assert _run(repo, TAG=tag).returncode != 0
+    result = _run(repo, TAG=tag)
+    assert result.returncode != 0
+    assert "is neither a GA" in result.stderr
+
+
+def test_tag_build_refuses_an_anchor(repo: Path):
+    _git(repo, "tag", "v5.3.0-0")
+    result = _run(repo, TAG="v5.3.0-0")
+    assert result.returncode != 0
+    assert "tag v5.3.0-0 is an anchor" in result.stderr
 
 
 def test_no_reachable_tag_fails(repo: Path):
     result = _run(repo, BRANCH="dev")
     assert result.returncode != 0
-    assert "no GA or pre-release tag" in result.stderr
+    assert "no GA, pre-release or anchor tag" in result.stderr
 
 
 def test_leading_zero_numeric_branch_fails(repo: Path):

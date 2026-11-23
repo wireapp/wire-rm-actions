@@ -39,6 +39,7 @@ next one.
 | other branch | GA `v5.2.1` | `5.2.2-20260930120000.my-feature.gabcdef0` |
 | dev/release branch | pre `v5.3.0-rc.1` | `5.3.0-rc.1.20260930120000.gabcdef0` |
 | other branch | pre `v5.3.0-rc.1` | `5.3.0-rc.1.20260930120000.my-feature.gabcdef0` |
+| dev/release branch | anchor `v5.3.0-0` | `5.3.0-20260930120000.gabcdef0` |
 
 In **release mode** (`mode: release`), a prepare-release workflow asks for the
 next explicit version of a branch, from the release tags reachable from it:
@@ -54,6 +55,9 @@ next explicit version of a branch, from the release tags reachable from it:
 | pre `v5.3.0-rc.1` | `beta` | `patch` | refused: a channel never goes backward |
 | pre `v5.3.0-rc.1` | `alpha` | `minor` | `5.4.0-alpha.1`: a new line opens, `rc.1` stays unpromoted |
 | pre `v5.3.0-rc.1` | `ga` | `major` | `6.0.0` |
+| anchor `v5.3.0-0` | `alpha` | `patch` | `5.3.0-alpha.1` |
+| anchor `v5.3.0-0` | `ga` | `patch` | `5.3.0` |
+| anchor `v5.3.0-0` | `ga` | `minor` | refused: the anchor already names the version |
 
 ## Technical reference
 
@@ -66,7 +70,7 @@ next explicit version of a branch, from the release tags reachable from it:
 | `release-branches` | build | `^(dev\|develop\|release/.+\|release-.+)$` | Regex of the branches whose versions carry no `<branch>` identifier. |
 | `source-branch` | release | required | The branch to release from, the trunk or a `release/X.Y` line, read as `<remote>/<branch>`. |
 | `release-type` | release | required | `ga`, `alpha`, `beta` or `rc`. |
-| `version-bump` | release | `patch` | `patch`, `minor` or `major`. From a GA, the bump of the next GA or of the first pre-release; from a pre-release, `patch` continues it and `minor` or `major` open a new line from its base. |
+| `version-bump` | release | `patch` | `patch`, `minor` or `major`. From a GA, the bump of the next GA or of the first pre-release; from a pre-release, `patch` continues it and `minor` or `major` open a new line from its base; from an anchor, `patch` only. |
 | `expected-version` | release | `""` | The version the release manager previewed: the step fails when it differs from the result, never adopts it. |
 | `remote` | release | `origin` | The git remote holding the source branch. |
 
@@ -85,20 +89,37 @@ next explicit version of a branch, from the release tags reachable from it:
 
 - `actions/checkout` with `fetch-depth: 0` (history and tags) for a dev build:
   a shallow clone fails.
-- At least one source tag reachable from the commit: `<prefix>X.Y.Z` (GA) or
-  `<prefix>X.Y.Z-alpha.N`, `-beta.N`, `-rc.N` with `N` from 1 (pre-release).
-  Tags of another form (`v1.2.3-alpha04`, `v1.2.3-pre.3`) are skipped.
-- `bash`, `git` and GNU `sort` (`ubuntu-latest`).
+- At least one source tag reachable from the commit: `<prefix>X.Y.Z` (GA),
+  `<prefix>X.Y.Z-alpha.N`, `-beta.N`, `-rc.N` with `N` from 1 (pre-release),
+  or `<prefix>X.Y.Z-0` (anchor). Tags of another form (`v1.2.3-alpha04`,
+  `v1.2.3-pre.3`, `v1.2.3-alpha.0`) are skipped.
+- `bash` and `git` (`ubuntu-latest`).
 
 ### Behaviour
 
 - **Tag build** (`github.ref_type == tag`): the version is the tag without its
-  prefix. A tag that is neither GA nor pre-release fails the step.
+  prefix. A tag that is neither GA nor pre-release fails the step, an anchor
+  included.
+- **Anchor**: the tag `<prefix>X.Y.Z-0` says that the next release of the
+  branch is `X.Y.Z`, where no release tag would lead to it: a line cut from a
+  history without release tags, a jump in the numbering (`v5.32.40-0` after
+  `v5.32.32`), the next minor on the trunk. Until that release, the dev builds
+  are `X.Y.Z-<ts>.g<sha7>`, as after a GA `X.Y.(Z-1)`, and release mode gives
+  `X.Y.Z` or `X.Y.Z-<channel>.1`. An anchor is never a version itself: a tag
+  build refuses it and no release carries it. A `release/X.Y` branch reads
+  the anchors of `X.Y.*` only, so the anchor of the next minor may sit on the
+  commit a line starts from; a pull request to a line reads the anchors of
+  that line too. An anchor is a tag like any other: where a ruleset forbids moving and
+  deleting `v*` tags it stays for good, and one that names too high a version
+  blocks the releases of its scope until an administrator removes it. A
+  higher anchor on the same commit, or another one on a later commit,
+  replaces one that names too low a version.
 - **Dev build**: the branch is `github.head_ref` on a pull request, else the
   pushed branch.
   - The nearest source tag comes from `git describe`. When several tags point
-    to that commit (`rc.2`, then the GA), the highest wins, a GA above any
-    pre-release.
+    to that commit, the highest in SemVer wins, as in release mode: a GA above
+    its own pre-releases and anchor (`5.3.0` above `5.3.0-rc.2`), an anchor
+    `5.1.0-0` above an older GA `5.0.80`.
   - `<ts>` is the committer date in UTC, `YYYYMMDDHHMMSS`, and `<sha7>` the
     first 7 characters of the commit.
   - Outside `release-branches`, `<branch>` is the last segment of the branch
@@ -106,9 +127,9 @@ next explicit version of a branch, from the release tags reachable from it:
     characters, trailing `-` removed. A numeric segment with a leading zero
     (`feat/0123`) is not valid SemVer and fails.
 - A version longer than 63 characters (the Helm limit) fails.
-- **Release mode**: the anchor is the latest release tag reachable from
-  `<remote>/<source-branch>` (the highest when several point to the same
-  commit); the rules of the table above apply. A
+- **Release mode**: the version follows from the latest release tag or anchor
+  reachable from `<remote>/<source-branch>` (the highest when several point to
+  the same commit); the rules of the table above apply. A
   `release/X.Y` branch may only produce `X.Y.*`; the target must not exist as
   a tag, and no release of the scanned scope (the line, or every release for
   the trunk) may be ahead of it. The former pre-release form `X.Y.Z-rc04` is
