@@ -49,7 +49,7 @@ def test_replaces_a_previous_release(workflow: Path):
     assert set(REF.findall(workflow.read_text())) == {"v0.2.0"}
 
 
-@pytest.mark.parametrize("version", ["", "0.1.0", "v0.1", "v01.0.0", "v0.1.0-rc.1", "main"])
+@pytest.mark.parametrize("version", ["", "0.1.0", "v0.1", "v01.0.0", "v0.1.0-rc.0", "v0.1.0-dev.1", "main"])
 def test_refuses_a_non_release_version(workflow: Path, version: str):
     before = workflow.read_text()
     assert _run(workflow, version).returncode == 64
@@ -62,3 +62,27 @@ def test_fails_without_any_ref(tmp_path: Path):
     result = _run(empty, "v0.1.0")
     assert result.returncode == 1
     assert "no wireapp/wire-rm-actions ref" in result.stderr
+
+
+def test_points_at_a_pre_release(workflow: Path):
+    assert _run(workflow, "v0.2.0-rc.1").returncode == 0
+    assert set(REF.findall(workflow.read_text())) == {"v0.2.0-rc.1"}
+
+
+def test_default_files_are_those_the_release_workflows_check(tmp_path: Path):
+    """No WORKFLOW: dev-build.yml and the templates, the files check-release-ref.sh reads."""
+    target = tmp_path / ".github/workflows/dev-build.yml"
+    target.parent.mkdir(parents=True)
+    shutil.copy(WORKFLOW, target)
+    (tmp_path / "templates").mkdir()
+    template = tmp_path / "templates/repair.yml"
+    template.write_text("      - uses: wireapp/wire-rm-actions/draft-release@dev\n")
+    env = {k: v for k, v in os.environ.items() if k != "WORKFLOW"}
+    result = subprocess.run(["bash", str(SCRIPT), "v0.2.0"], cwd=tmp_path, env=env, capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    assert set(REF.findall(target.read_text())) == {"v0.2.0"}
+    assert REF.findall(template.read_text()) == ["v0.2.0"]
+    check = subprocess.run(
+        ["bash", str(ROOT / "scripts/check-release-ref.sh"), "v0.2.0"], cwd=tmp_path, env=env, capture_output=True, text=True
+    )
+    assert check.returncode == 0, check.stderr

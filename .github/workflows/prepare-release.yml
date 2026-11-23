@@ -1,0 +1,228 @@
+# yamllint disable rule:truthy
+# Prepares a release of this repository the way the components do (docs/releasing.md):
+# the dispatch inputs are checked, the source commit is gated, the three
+# publication files and the pinned refs are required, and the draft GitHub
+# Release is created with the release note, the declaration and the
+# compatibility file. The publication waits for a release manager in the
+# release-publication environment (publish-release.yml). The actions run from
+# this checkout: a release of the actions cannot pin itself.
+name: Prepare release
+
+run-name: Prepare ${{ inputs.type }} from ${{ inputs.source_branch }} (by @${{ github.actor }})
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_branch:
+        description: "Branch to release from: dev, or a maintained release/X.Y line"
+        type: string
+        default: dev
+        required: true
+      type:
+        description: Release channel
+        type: choice
+        options: [alpha, beta, rc, ga]
+        default: ga
+        required: true
+      bump:
+        description: "From a GA: the next GA, or the first pre-release of the next line"
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+        required: true
+      force:
+        description: Skip the CI checks gate (logged)
+        type: boolean
+        default: false
+        required: false
+
+permissions: {}
+
+# One publication at a time per repository: prepare and publish share the group.
+concurrency:
+  group: publish-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  candidate:
+    name: Prepare the release candidate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write # the draft release
+      checks: read # ci-gate
+      statuses: read
+      actions: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      release_id: ${{ steps.release.outputs.id }}
+    steps:
+      # The actions of this commit, before anything else runs.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Validate the inputs
+        id: inputs
+        uses: ./release-inputs
+        with:
+          source-branch: ${{ inputs.source_branch }}
+          type: ${{ inputs.type }}
+          version-bump: ${{ inputs.bump }}
+          force: ${{ inputs.force }}
+
+      - name: Verify the source branch exists
+        uses: ./release-source
+        with:
+          mode: verify
+          source-branch: ${{ inputs.source_branch }}
+
+      # From here on, the actions and the publication files are those of the source commit.
+      - name: Check out the source branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.source_branch }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Resolve the source commit
+        id: source
+        uses: ./release-source
+        with:
+          mode: resolve
+          source-branch: ${{ inputs.source_branch }}
+
+      - name: Compute the version
+        id: version
+        uses: ./version
+        with:
+          mode: release
+          source-branch: ${{ inputs.source_branch }}
+          release-type: ${{ steps.inputs.outputs.release-type }}
+          version-bump: ${{ inputs.bump }}
+
+      - name: Summarise the candidate
+        uses: ./release-source
+        with:
+          mode: summary
+          source-branch: ${{ inputs.source_branch }}
+          version: ${{ steps.version.outputs.version }}
+          release-type: ${{ steps.inputs.outputs.release-type }}
+          source-sha: ${{ steps.source.outputs.sha }}
+          base-tag: ${{ steps.version.outputs.base-tag }}
+          from-tag: ${{ steps.version.outputs.from-tag }}
+          note: The draft release link appears here once created.
+
+      - name: Release and CI gates
+        uses: ./ci-gate
+        with:
+          version: ${{ steps.version.outputs.version }}
+          source-commit: ${{ steps.source.outputs.sha }}
+          force: ${{ steps.inputs.outputs.force }}
+          # A failed recovery publication on this commit is not its CI.
+          exclude-workflows: publish-release.yml
+
+      - name: Require the publication files
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          SOURCE_BRANCH: ${{ inputs.source_branch }}
+        run: |
+          set -euo pipefail
+          for f in publication/release-note.md publication/declaration.json publication/compatibility.yaml; do
+            [[ -s "$f" ]] || { echo "::error::no $f for ${VERSION} on ${SOURCE_BRANCH}: a release needs the three publication files (docs/releasing.md)"; exit 1; }
+          done
+
+      - name: Require the pinned refs of the release
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: scripts/check-release-ref.sh "$TAG"
+
+      - name: Gather the release documents
+        id: documents
+        uses: ./release-documents
+        with:
+          component: wire-rm-actions
+          version: ${{ steps.version.outputs.version }}
+          release-type: ${{ steps.inputs.outputs.release-type }}
+          out-dir: ${{ runner.temp }}/release
+
+      - name: Check the compatibility file
+        uses: ./compatibility
+        with:
+          output-dir: ${{ runner.temp }}/compatibility
+
+      - name: Changelog since the previous release
+        id: changelog
+        uses: ./changelog
+        with:
+          from-tag: ${{ steps.version.outputs.from-tag }}
+          to-ref: ${{ steps.source.outputs.sha }}
+          heading: "false"
+          output-file: ${{ runner.temp }}/changelog.md
+
+      # The release note, the changelog and the line consumers pin.
+      - name: Compose the release body
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ steps.version.outputs.tag }}
+          FROM_TAG: ${{ steps.version.outputs.from-tag }}
+          SHA: ${{ steps.source.outputs.sha }}
+          NOTE: ${{ runner.temp }}/release/release-note.md
+          CHANGELOG: ${{ steps.changelog.outputs.file }}
+          COUNT: ${{ steps.changelog.outputs.count }}
+          OUT: ${{ runner.temp }}/release-body.md
+          RELEASE_DIR: ${{ runner.temp }}/release
+        run: |
+          set -euo pipefail
+          cp publication/compatibility.yaml "$RELEASE_DIR/compatibility.yaml"
+          {
+            cat "$NOTE"
+            echo
+            echo "## Commits since ${FROM_TAG}"
+            echo
+            if [[ "$COUNT" == 0 ]]; then echo "_No user-facing commit since ${FROM_TAG}._"; else cat "$CHANGELOG"; fi
+            echo
+            echo "## Pin this release"
+            echo
+            echo '```yaml'
+            echo "uses: wireapp/wire-rm-actions/<action>@${SHA} # ${TAG}"
+            echo "uses: wireapp/wire-rm-actions/.github/workflows/dev-build.yml@${SHA} # ${TAG}"
+            echo '```'
+          } >"$OUT"
+
+      - name: Create the draft release
+        id: release
+        uses: ./draft-release
+        with:
+          mode: create
+          version: ${{ steps.version.outputs.version }}
+          target: ${{ steps.source.outputs.sha }}
+          title: ${{ steps.version.outputs.tag }}
+          body-file: ${{ runner.temp }}/release-body.md
+          assets: |
+            ${{ runner.temp }}/release/release-note.md
+            ${{ runner.temp }}/release/release-declaration.json
+            ${{ runner.temp }}/release/compatibility.yaml
+
+      - name: What happens next
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          URL: ${{ steps.release.outputs.url }}
+        run: |
+          set -euo pipefail
+          {
+            echo
+            echo "Draft [\`${TAG}\`](${URL}) created with the release note, the declaration and the compatibility file."
+            echo
+            echo "Review it, then approve the \`release-publication\` environment on this run: the publication checks the draft against its source commit and publishes it, which creates the tag."
+          } >>"$GITHUB_STEP_SUMMARY"
+
+  publish:
+    name: Publish
+    needs: candidate
+    permissions:
+      contents: write
+    uses: ./.github/workflows/publish-release.yml
+    with:
+      version: ${{ needs.candidate.outputs.version }}
+      release_id: ${{ needs.candidate.outputs.release_id }}

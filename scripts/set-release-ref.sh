@@ -1,33 +1,46 @@
 #!/usr/bin/env bash
 # Point the reusable workflow at a release (make release-prep): every
-# `uses: wireapp/wire-rm-actions/<action>@<ref>` of dev-build.yml becomes
-# @<version>, whatever <ref> was (dev or the previous release). The release
-# workflow refuses a tag whose dev-build.yml calls another ref.
+# `uses: wireapp/wire-rm-actions/<action>@<ref>` of dev-build.yml (and of the
+# templates, when the directory exists) becomes @<version>, whatever <ref> was
+# (dev or the previous release). The release workflows refuse a commit whose
+# refs name another release (check-release-ref.sh, same files).
 #
-# Usage: set-release-ref.sh vX.Y.Z
-# Environment: WORKFLOW (default .github/workflows/dev-build.yml).
+# Usage: set-release-ref.sh vX.Y.Z[-<alpha|beta|rc>.N]
+# Environment: WORKFLOW, one file instead of the default
+# .github/workflows/dev-build.yml templates/*.yml.
 set -euo pipefail
 export LC_ALL=C
 
 version=${1:-}
-workflow=${WORKFLOW:-.github/workflows/dev-build.yml}
 num='(0|[1-9][0-9]*)'
-[[ $version =~ ^v${num}\.${num}\.${num}$ ]] || {
-  echo "usage: $0 vX.Y.Z" >&2
+[[ $version =~ ^v${num}\.${num}\.${num}(-(alpha|beta|rc)\.[1-9][0-9]*)?$ ]] || {
+  echo "usage: $0 vX.Y.Z[-<alpha|beta|rc>.N]" >&2
   exit 64
 }
-[[ -f $workflow ]] || {
-  echo "set-release-ref: no $workflow" >&2
-  exit 1
-}
+if [[ -n ${WORKFLOW:-} ]]; then
+  files=("$WORKFLOW")
+else
+  files=(.github/workflows/dev-build.yml)
+  for f in templates/*.yml; do
+    [[ -f $f ]] && files+=("$f")
+  done
+fi
 
 pattern='(uses: wireapp/wire-rm-actions/[^@[:space:]]+)@[^[:space:]]+'
-grep -Eq "$pattern" "$workflow" || {
-  echo "set-release-ref: no wireapp/wire-rm-actions ref in $workflow" >&2
-  exit 1
-}
+for f in "${files[@]}"; do
+  [[ -f $f ]] || {
+    echo "set-release-ref: no $f" >&2
+    exit 1
+  }
+  grep -Eq "$pattern" "$f" || {
+    echo "set-release-ref: no wireapp/wire-rm-actions ref in $f" >&2
+    exit 1
+  }
+done
 tmp=$(mktemp)
 trap 'rm -f "$tmp"' EXIT
-sed -E "s|${pattern}|\\1@${version}|" "$workflow" >"$tmp"
-cat "$tmp" >"$workflow"
-grep -Eo "$pattern" "$workflow"
+for f in "${files[@]}"; do
+  sed -E "s|${pattern}|\\1@${version}|" "$f" >"$tmp"
+  cat "$tmp" >"$f"
+  grep -Eo "$pattern" "$f"
+done

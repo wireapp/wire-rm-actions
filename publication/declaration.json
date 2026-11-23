@@ -1,0 +1,58 @@
+{
+  "schemaVersion": "wire.component-release/v1alpha2",
+  "component": "wire-rm-actions",
+  "version": "0.2.0",
+  "summary": "Clearer release manager refusals, dev images that expire, safer chart publication, chart-only manifests. No input changes: repin the actions.",
+  "upgrade_from": ">=0.1.0",
+  "changes": [
+    {
+      "kind": "changed",
+      "description": "notify-rm tells a refused credential (401) from a refused declaration (403), quotes the release manager's reason and titles its annotations.",
+      "breaking": false,
+      "links": [
+        "https://github.com/wireapp/wire-rm-actions/pull/5"
+      ]
+    },
+    {
+      "kind": "fixed",
+      "description": "changelog reads feat!: and feat(scope)!: as breaking changes.",
+      "breaking": false,
+      "links": [
+        "https://github.com/wireapp/wire-rm-actions/pull/5"
+      ]
+    },
+    {
+      "kind": "fixed",
+      "description": "build-image builds an image that expires without attestations, so dev images expire on Quay; expires-after with provenance or sbom fails before the build.",
+      "breaking": false,
+      "links": [
+        "https://github.com/wireapp/wire-rm-actions/pull/5"
+      ]
+    },
+    {
+      "kind": "fixed",
+      "description": "publish-chart creates the destination of helm pull and stops when the presence check fails for another reason than an absent version.",
+      "breaking": false,
+      "links": [
+        "https://github.com/wireapp/wire-rm-actions/pull/12",
+        "https://github.com/wireapp/wire-rm-actions/pull/9"
+      ]
+    },
+    {
+      "kind": "added",
+      "description": "release-manifest writes the manifest of a chart-only component (chart-only: true).",
+      "breaking": false,
+      "links": [
+        "https://github.com/wireapp/wire-rm-actions/pull/8"
+      ]
+    },
+    {
+      "kind": "added",
+      "description": "The repository releases itself with the standard publication files and workflows, documented in docs/releasing.md.",
+      "breaking": false,
+      "links": []
+    }
+  ],
+  "migrations": [],
+  "configuration": []
+}

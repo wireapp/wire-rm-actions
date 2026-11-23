@@ -176,8 +176,9 @@ uses: wireapp/wire-rm-actions/version@<sha> # vX.Y.Z
 - All the actions of a run come from the same release.
 - The reusable workflow is pinned the same way, and each release points its
   actions at its own tag.
-- Release tags are signed, cannot be moved or deleted, and published releases
-  are immutable.
+- A release tag is created by the publication workflow once a release manager
+  approves it, on a commit of `dev` or `release/X.Y`; tags cannot be moved or
+  deleted, and published releases are immutable.
 
 ## Security
 
@@ -195,6 +196,8 @@ make ci      # lint, audit, tests, secrets scan, commit message rules
 ```
 
 - Contribution rules and release procedure: [CONTRIBUTING.md](CONTRIBUTING.md).
+- What the actions expect from a component, and how this repository releases
+  itself the same way: [docs/releasing.md](docs/releasing.md).
 
 ## License
 

@@ -42,13 +42,26 @@ The second line, when there is one, is empty. Merge commits pass. The
 
 ## Release
 
-1. `make release-prep VERSION=vX.Y.Z`: `dev-build.yml` calls the actions at
-   `@vX.Y.Z`. Commit it through a pull request.
-2. Once merged, tag the merge commit on `dev` with a signed annotated tag
-   (`git tag -s vX.Y.Z -m vX.Y.Z`, SSH key listed in
-   `.github/allowed_signers`) and push the tag.
-3. The `Release` workflow checks the tag (vX.Y.Z, on `dev`, signature, the
-   `dev-build.yml` refs) and creates a draft release.
-4. A maintainer reviews the draft and publishes it.
+This repository releases itself the way it asks components to
+([docs/releasing.md](docs/releasing.md)): no artifact, so the release is the tagged
+commit and its GitHub Release.
+
+1. A release pull request on `dev`: `make release-prep VERSION=vX.Y.Z` points
+   `dev-build.yml` at `@vX.Y.Z` (the exact tag: `vX.Y.Z-rc.N` for a
+   pre-release, then again for the GA); `publication/release-note.md` and
+   `publication/declaration.json` describe X.Y.Z (`make ci` validates them).
+2. Once merged, run the `Prepare release` workflow on `dev` with the type and
+   the bump that give that version (`minor` for X.Y.0; the default is `patch`). It
+   checks the inputs, the CI of the commit, the three publication files and
+   the pinned refs, and creates the draft release with the note, the
+   declaration and the compatibility file; the body carries the changelog and
+   the line consumers pin.
+3. A release manager reviews the draft and approves the `release-publication`
+   environment on that run. The publication checks the draft against its
+   source commit and publishes it, which creates the tag `vX.Y.Z`.
+4. If the run is gone, dispatch `Publish release` with the version: the draft
+   is found by tag.
+5. A candidate that went stale, or was rejected: delete its draft release,
+   then prepare again. A draft counts as an existing release.
 
 Consumers then pin the tag's commit SHA (README, "Pin a release").
